@@ -1,0 +1,54 @@
+[tool.mypy]
+    disallow_incomplete_defs = false
+    disallow_untyped_defs    = false
+    ignore_missing_imports   = true
+    python_version           = "3.13"
+    warn_no_return           = true
+    warn_return_any          = true
+
+[tool.ruff]
+    exclude = [
+        ".eggs",
+        ".git",
+        "__pycache__"
+    ]
+
+    line-length = 120
+    target-version = "py313"
+
+[tool.ruff.lint]
+    select = ["E4", "E7", "E9", "F"]
+    ignore = ["E203"]
+
+    fixable = ["ALL"]
+    unfixable = []
+
+    dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+
+[tool.ruff.format]
+    quote-style = "single"
+    indent-style = "space"
+    docstring-code-format = true
+
+[tool.yamlfix]
+    comments_min_spaces_from_content = 1            # Minimum number of spaces between comments and content
+    line_length                      = 120          # Maximum line length before wrapping
+    preserve_quotes                  = true         # Preserve quotes around string values if they are present
+    section_whitelines               = 1            # Number of blank lines before and after sections
+    sequence_style                   = "keep_style" # Determines how sequences (lists) are formatted: 'flow_style', 'block_style', or 'keep_style'
+    whitelines                       = 1            # Number of blank lines between elements, useful for separating items
+
+[tool.commitizen]
+    name = "czespressif"
+    version = "0.0.1"
+    update_changelog_on_bump = true
+    tag_format = "v$version"
+    changelog_start_rev = "v0.0.1"
+    changelog_merge_prerelease = true
+    annotated_tag = true
+    bump_message = "change: Update version to $new_version"
+
+[tool.codespell]
+    write-changes = false
