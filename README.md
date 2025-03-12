@@ -36,4 +36,4 @@ Create a pull request and edit the automatically created draft [release notes](h
 
 ## License
 
-This document and the attached source code are released as Free Software under Apache License Version 2. See the accompanying [LICENSE file](https://github.com/espressif/esp-flasher-stub/blob/master/LICENSE) for a copy.
+This document and the attached source code are released as Free Software under either the [Apache License Version 2](LICENSE-APACHE) or [MIT License](LICENSE-MIT) at your option.
