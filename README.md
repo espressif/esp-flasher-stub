@@ -6,6 +6,18 @@ This project is experimental and not yet ready for production use.
 
 The project's goal is to replace the legacy [flasher stub of esptool](https://github.com/espressif/esptool-legacy-flasher-stub/) in the near future.
 
+# How to Build
+
+The project depends on [esp-stub-lib](https://github.com/espressif/esp-stub-lib/) in the form of git submodule. Don't forget to get/update the submodule as well before building:
+
+```sh
+git submodule update --init --recursive
+mkdir -p build
+cd build
+cmake .. -G Ninja -DTARGET_CHIP=esp32-s2   # Replace with your desired chip, e.g. esp32, esp8266
+ninja
+```
+
 # How To Use
 
 1. Install esptool in [development mode](https://docs.espressif.com/projects/esptool/en/latest/esp32/contributing.html#development-setup).
