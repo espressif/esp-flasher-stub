@@ -1,0 +1,3 @@
+[submodule "esp-stub-lib"]
+	path = esp-stub-lib
+	url = https://github.com/espressif/esp-stub-lib
