@@ -11,12 +11,12 @@ ci:
 
 repos:
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.5
+    rev: v2.4.1
     hooks:
       - id: codespell
 
   - repo: https://github.com/espressif/check-copyright/
-    rev: v1.1.0
+    rev: v1.1.1
     hooks:
       - id: check-copyright
         args: ['--config', '.check_copyright_config.yaml']
@@ -32,7 +32,7 @@ repos:
       - id: double-quote-string-fixer
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.4
+    rev: v0.11.4
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
