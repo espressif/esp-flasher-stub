@@ -8,3 +8,8 @@ submodules:
   check: false
   include:
     - "/esp-stub-lib/"
+
+libraries:
+  check: false
+  include:
+    - "src/miniz.*"

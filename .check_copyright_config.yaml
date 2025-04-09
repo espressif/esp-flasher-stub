@@ -21,3 +21,4 @@ ignore:
   perform_check: false
   include:
     - src/ld
+    - src/miniz.*
