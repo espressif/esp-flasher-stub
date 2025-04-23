@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
+#include <esp-stub-lib/flash.h>
+
 extern "C" void esp_main(void) __attribute__((used));
 
 #ifdef ESP8266
@@ -18,4 +20,10 @@ __asm__(
 
 extern "C" void esp_main(void)
 {
+    void *flash_state = nullptr;
+    stub_lib_flash_init(&flash_state);
+
+    if (flash_state) {
+        stub_lib_flash_deinit(flash_state);
+    }
 }
