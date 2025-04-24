@@ -35,6 +35,20 @@ Then run the following export script in every terminal where the project is used
 . ./tools/export_toolchains.sh
 ```
 
+### Esptool
+
+[Esptool](https://github.com/espressif/esptool/) is needed for ELF file analysis. Run the following commands in order to install it:
+```sh
+python -m venv venv
+source venv/bin/activate
+pip install esptool
+```
+
+Run the following command in every terminal where the project is used:
+```sh
+source venv/bin/activate
+```
+
 # How to Build
 
 ### Build for one selected chip target
