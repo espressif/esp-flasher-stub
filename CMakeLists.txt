@@ -64,3 +64,8 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/src)
 set(ESP_TARGET ${TARGET_CHIP} CACHE INTERNAL "Pass TARGET_CHIP as ESP_TARGET")
 add_subdirectory(${CMAKE_SOURCE_DIR}/esp-stub-lib)
 target_link_libraries(${TARGET_NAME} PRIVATE esp-stub-lib)
+
+add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+    COMMAND ${CMAKE_SOURCE_DIR}/tools/elf2json.py ${CMAKE_BINARY_DIR}/${TARGET_NAME}${CMAKE_EXECUTABLE_SUFFIX_CXX} ${CMAKE_BINARY_DIR}/${TARGET_CHIP}.json
+    COMMENT "Running elf2json.py to produce a JSON file output"
+)
