@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(flasher-stub CXX)
+# C needs to be here for esp-stub-lib
+project(flasher-stub CXX C)
 
 option(TARGET_CHIP "Target ESP chip" "OFF")
 
@@ -17,8 +18,9 @@ set(ESP8266_FLAGS "-DESP8266" ${EXTRA_XTENSA_FLAGS})
 set(XTENSA_FLAGS "-DXTENSA" ${EXTRA_XTENSA_FLAGS})
 set(RISCV_FLAGS "-DRISCV" ${EXTRA_RISCV_FLAGS})
 
+set(TARGET_NAME stub-${TARGET_CHIP} CACHE STRING "Target name")
 message(STATUS "Building for ${TARGET_CHIP}")
-add_executable(${TARGET_CHIP})
+add_executable(${TARGET_NAME})
 
 set(ESP32_XTENSA_CHIPS esp32 esp32s2 esp32s3)
 
@@ -38,20 +40,27 @@ endif()
 set(LINKER_SCRIPTS_DIR "${CMAKE_SOURCE_DIR}/src/ld")
 set(CHIP_LINKER_SCRIPT "${LINKER_SCRIPTS_DIR}/${TARGET_CHIP}.ld")
 
-target_compile_options(${TARGET_CHIP} PRIVATE
+target_compile_options(${TARGET_NAME} PRIVATE
     ${CUSTOM_FLAGS}
     ${CHIP_FLAGS}
 )
 
-target_link_options(${TARGET_CHIP} PRIVATE
+target_link_options(${TARGET_NAME} PRIVATE
     ${CUSTOM_FLAGS}
     ${CHIP_FLAGS}
     "-T${CHIP_LINKER_SCRIPT}"
-    -Wl,-Map=${CMAKE_BINARY_DIR}/${TARGET_CHIP}.map
+    -Wl,-Map=${CMAKE_BINARY_DIR}/${TARGET_NAME}.map
 )
 
+
+# CMAKE_C_COMPILER is for esp-stub-lib
+set(CMAKE_C_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}gcc)
 set(CMAKE_CXX_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
 set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
 set(CMAKE_EXECUTABLE_SUFFIX_CXX ".elf")
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/src)
+
+set(ESP_TARGET ${TARGET_CHIP} CACHE INTERNAL "Pass TARGET_CHIP as ESP_TARGET")
+add_subdirectory(${CMAKE_SOURCE_DIR}/esp-stub-lib)
+target_link_libraries(${TARGET_NAME} PRIVATE esp-stub-lib)
