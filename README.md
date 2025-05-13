@@ -83,7 +83,9 @@ pre-commit install -t pre-commit -t commit-msg
 # How To Release (For Maintainers Only)
 
 ```bash
-pip install commitizen
+python -m venv venv
+source venv/bin/activate
+pip install commitizen czespressif
 git fetch
 git checkout -b update/release_v1.1.0
 git reset --hard origin/master
