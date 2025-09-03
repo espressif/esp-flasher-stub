@@ -1,26 +1,18 @@
 cmake_minimum_required(VERSION 3.28)
 
-# C needs to be here for esp-stub-lib
-project(flasher-stub CXX C)
-
 option(TARGET_CHIP "Target ESP chip" "OFF")
 
 if("${TARGET_CHIP}" STREQUAL "OFF")
     message(FATAL_ERROR "Please set target chip via -DTARGET_CHIP.")
 endif()
 
-# CXX standard set based on the GCC version of the toolchain for ESP8266 (oldest one)
-set(CUSTOM_FLAGS --std=gnu++17 -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -Wl,-static -g -ffunction-sections -Wl,--gc-sections)
+# Detect toolchain prefix and flags early
 set(EXTRA_RISCV_FLAGS -march=rv32imc -mabi=ilp32 -msmall-data-limit=0)
 set(EXTRA_XTENSA_FLAGS -mtext-section-literals -mlongcalls)
 
 set(ESP8266_FLAGS "-DESP8266" ${EXTRA_XTENSA_FLAGS})
 set(XTENSA_FLAGS "-DXTENSA" ${EXTRA_XTENSA_FLAGS})
 set(RISCV_FLAGS "-DRISCV" ${EXTRA_RISCV_FLAGS})
-
-set(TARGET_NAME stub-${TARGET_CHIP} CACHE STRING "Target name")
-message(STATUS "Building for ${TARGET_CHIP}")
-add_executable(${TARGET_NAME})
 
 set(ESP32_XTENSA_CHIPS esp32 esp32s2 esp32s3)
 
@@ -37,6 +29,27 @@ else()
     set(CHIP_FLAGS "${RISCV_FLAGS}")
 endif()
 
+# Set compilers BEFORE project() to avoid host detection (e.g., -arch arm64 or -isysroot)
+set(CMAKE_SYSTEM_NAME Generic)
+# CMAKE_C_COMPILER is for esp-stub-lib
+set(CMAKE_C_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}gcc)
+set(CMAKE_CXX_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
+set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
+set(CMAKE_EXECUTABLE_SUFFIX_CXX ".elf")
+
+# Now it's safe to call project()
+project(flasher-stub CXX C)
+
+# Ensure arch-specific options like -mlongcalls propagate to all subdirs/libs
+add_compile_options(${CHIP_FLAGS})
+
+# Remaining flags and settings
+# CXX standard set based on the GCC version of the toolchain for ESP8266 (oldest one)
+set(CUSTOM_FLAGS --std=gnu++17 -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -Wl,-static -g -ffunction-sections -Wl,--gc-sections)
+set(TARGET_NAME stub-${TARGET_CHIP} CACHE STRING "Target name")
+message(STATUS "Building for ${TARGET_CHIP}")
+add_executable(${TARGET_NAME})
+
 set(LINKER_SCRIPTS_DIR "${CMAKE_SOURCE_DIR}/src/ld")
 set(CHIP_LINKER_SCRIPT "${LINKER_SCRIPTS_DIR}/${TARGET_CHIP}.ld")
 
@@ -51,13 +64,6 @@ target_link_options(${TARGET_NAME} PRIVATE
     "-T${CHIP_LINKER_SCRIPT}"
     -Wl,-Map=${CMAKE_BINARY_DIR}/${TARGET_NAME}.map
 )
-
-
-# CMAKE_C_COMPILER is for esp-stub-lib
-set(CMAKE_C_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}gcc)
-set(CMAKE_CXX_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
-set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
-set(CMAKE_EXECUTABLE_SUFFIX_CXX ".elf")
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/src)
 

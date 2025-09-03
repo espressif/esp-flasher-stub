@@ -62,14 +62,20 @@ ninja -C build
 ### Build for all supported chip targets
 
 ```sh
-./tools/build_all.sh
+./tools/build_all_chips.sh
 ```
 
 # How To Use With Esptool
 
 1. Install esptool in [development mode](https://docs.espressif.com/projects/esptool/en/latest/esp32/contributing.html#development-setup).
 2. Obtain the flasher stub binaries as JSON files either from the [releases page](https://github.com/espressif/esp-flasher-stub) or from the artifacts of your pull request.
-3. Replace the esptool's JSONs files in the `esptool/targets/stub_flasher` directory with the obtained JSON files.
+3. Replace the esptool's JSON files in the `esptool/targets/stub_flasher` directory with the obtained JSON files.
+
+    Example copy command (adjust the path to your esptool directory):
+
+    ```sh
+    cp build-*/*.json ~/esptool/esptool/targets/stub_flasher/1/
+    ```
 
 # Contributing
 
