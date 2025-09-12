@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <esp-stub-lib/flash.h>
 #include "slip.h"
+#include "command_handler.h"
 
 #ifdef ESP8266
 __asm__(
@@ -27,7 +28,7 @@ void esp_main(void)
     const uint8_t greeting[4] = {'O', 'H', 'A', 'I'};
     slip_send_frame(&greeting, sizeof(greeting));
 
-    // TODO: Implement command loop
+    command_handler_loop();
 
     // Cleanup
     if (flash_state) {
