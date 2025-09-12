@@ -1,4 +1,4 @@
-set(COMMON_SOURCES "main.c" "slip.c")
+set(COMMON_SOURCES "main.c" "slip.c" "command_handler.c")
 
 target_sources(${TARGET_NAME} PRIVATE ${COMMON_SOURCES})
 
