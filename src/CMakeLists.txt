@@ -1,4 +1,4 @@
-set(COMMON_SOURCES "main.cpp")
+set(COMMON_SOURCES "main.cpp" "slip.cpp")
 
 target_sources(${TARGET_NAME} PRIVATE ${COMMON_SOURCES})
 
