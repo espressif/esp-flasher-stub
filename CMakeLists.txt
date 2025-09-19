@@ -37,15 +37,18 @@ set(CMAKE_CXX_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
 set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
 set(CMAKE_EXECUTABLE_SUFFIX_CXX ".elf")
 
-# Now it's safe to call project()
 project(flasher-stub CXX C)
 
-# Ensure arch-specific options like -mlongcalls propagate to all subdirs/libs
+set(COMMON_FLAGS -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -ffunction-sections)
+
+add_compile_options(${COMMON_FLAGS})
 add_compile_options(${CHIP_FLAGS})
 
-# Remaining flags and settings
 # CXX standard set based on the GCC version of the toolchain for ESP8266 (oldest one)
-set(CUSTOM_FLAGS --std=gnu++17 -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -Wl,-static -g -ffunction-sections -Wl,--gc-sections)
+add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-std=gnu17>)
+
+set(LINKER_FLAGS -Wl,-static -Wl,--gc-sections)
 set(TARGET_NAME stub-${TARGET_CHIP} CACHE STRING "Target name")
 message(STATUS "Building for ${TARGET_CHIP}")
 add_executable(${TARGET_NAME})
@@ -53,13 +56,8 @@ add_executable(${TARGET_NAME})
 set(LINKER_SCRIPTS_DIR "${CMAKE_SOURCE_DIR}/src/ld")
 set(CHIP_LINKER_SCRIPT "${LINKER_SCRIPTS_DIR}/${TARGET_CHIP}.ld")
 
-target_compile_options(${TARGET_NAME} PRIVATE
-    ${CUSTOM_FLAGS}
-    ${CHIP_FLAGS}
-)
-
 target_link_options(${TARGET_NAME} PRIVATE
-    ${CUSTOM_FLAGS}
+    ${LINKER_FLAGS}
     ${CHIP_FLAGS}
     "-T${CHIP_LINKER_SCRIPT}"
     -Wl,-Map=${CMAKE_BINARY_DIR}/${TARGET_NAME}.map
