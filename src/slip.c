@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-#include "slip.hpp"
+#include "slip.h"
 #include <esp-stub-lib/rom_wrappers.h>
 
 /* SLIP Protocol Constants */

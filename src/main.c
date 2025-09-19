@@ -4,11 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
+#include <stddef.h>
 #include <esp-stub-lib/flash.h>
-#include <esp-stub-lib/rom_wrappers.h>
-#include "slip.hpp"
-
-extern "C" void esp_main(void) __attribute__((used));
+#include "slip.h"
+#include "command_handler.h"
 
 #ifdef ESP8266
 __asm__(
@@ -20,17 +19,16 @@ __asm__(
     "j esp_main;");
 #endif //ESP8266
 
-extern "C" void esp_main(void)
+void esp_main(void)
 {
-    // Initialize flash subsystem
-    void *flash_state = nullptr;
+    void *flash_state = NULL;
     stub_lib_flash_init(&flash_state);
 
     // Send OHAI greeting to signal stub is active
     const uint8_t greeting[4] = {'O', 'H', 'A', 'I'};
     slip_send_frame(&greeting, sizeof(greeting));
 
-    // TODO: Implement command loop
+    run_command_loop();
 
     // Cleanup
     if (flash_state) {
