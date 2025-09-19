@@ -31,22 +31,17 @@ endif()
 
 # Set compilers BEFORE project() to avoid host detection (e.g., -arch arm64 or -isysroot)
 set(CMAKE_SYSTEM_NAME Generic)
-# CMAKE_C_COMPILER is for esp-stub-lib
 set(CMAKE_C_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}gcc)
-set(CMAKE_CXX_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
-set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
-set(CMAKE_EXECUTABLE_SUFFIX_CXX ".elf")
+set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}gcc)
+set(CMAKE_EXECUTABLE_SUFFIX_C ".elf")
 
-project(flasher-stub CXX C)
+project(flasher-stub C)
 
-set(COMMON_FLAGS -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -ffunction-sections)
+# C standard set based on the GCC version of the toolchain for ESP8266 (oldest one)
+set(COMMON_FLAGS -std=gnu17 -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -ffunction-sections)
 
 add_compile_options(${COMMON_FLAGS})
 add_compile_options(${CHIP_FLAGS})
-
-# CXX standard set based on the GCC version of the toolchain for ESP8266 (oldest one)
-add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>)
-add_compile_options($<$<COMPILE_LANGUAGE:C>:-std=gnu17>)
 
 set(LINKER_FLAGS -Wl,-static -Wl,--gc-sections)
 set(TARGET_NAME stub-${TARGET_CHIP} CACHE STRING "Target name")
@@ -70,6 +65,6 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/esp-stub-lib)
 target_link_libraries(${TARGET_NAME} PRIVATE esp-stub-lib)
 
 add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
-    COMMAND ${CMAKE_SOURCE_DIR}/tools/elf2json.py ${CMAKE_BINARY_DIR}/${TARGET_NAME}${CMAKE_EXECUTABLE_SUFFIX_CXX} ${CMAKE_BINARY_DIR}/${TARGET_CHIP}.json
+    COMMAND ${CMAKE_SOURCE_DIR}/tools/elf2json.py ${CMAKE_BINARY_DIR}/${TARGET_NAME}${CMAKE_EXECUTABLE_SUFFIX_C} ${CMAKE_BINARY_DIR}/${TARGET_CHIP}.json
     COMMENT "Running elf2json.py to produce a JSON file output"
 )
