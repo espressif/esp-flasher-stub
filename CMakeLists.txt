@@ -31,21 +31,19 @@ endif()
 
 # Set compilers BEFORE project() to avoid host detection (e.g., -arch arm64 or -isysroot)
 set(CMAKE_SYSTEM_NAME Generic)
-# CMAKE_C_COMPILER is for esp-stub-lib
 set(CMAKE_C_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}gcc)
-set(CMAKE_CXX_COMPILER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
-set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}g++)
-set(CMAKE_EXECUTABLE_SUFFIX_CXX ".elf")
+set(CMAKE_LINKER ${TOOLCHAIN_EXECUTABLE_PREFIX}gcc)
+set(CMAKE_EXECUTABLE_SUFFIX_C ".elf")
 
-# Now it's safe to call project()
-project(flasher-stub CXX C)
+project(flasher-stub C)
 
-# Ensure arch-specific options like -mlongcalls propagate to all subdirs/libs
+# C standard set based on the GCC version of the toolchain for ESP8266 (oldest one)
+set(COMMON_FLAGS -std=gnu17 -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -ffunction-sections)
+
+add_compile_options(${COMMON_FLAGS})
 add_compile_options(${CHIP_FLAGS})
 
-# Remaining flags and settings
-# CXX standard set based on the GCC version of the toolchain for ESP8266 (oldest one)
-set(CUSTOM_FLAGS --std=gnu++17 -Wall -Wextra -Werror -Wshadow -Wundef -Wconversion -Os -fno-common -nostdlib -fno-builtin -Wl,-static -g -ffunction-sections -Wl,--gc-sections)
+set(LINKER_FLAGS -Wl,-static -Wl,--gc-sections)
 set(TARGET_NAME stub-${TARGET_CHIP} CACHE STRING "Target name")
 message(STATUS "Building for ${TARGET_CHIP}")
 add_executable(${TARGET_NAME})
@@ -53,13 +51,8 @@ add_executable(${TARGET_NAME})
 set(LINKER_SCRIPTS_DIR "${CMAKE_SOURCE_DIR}/src/ld")
 set(CHIP_LINKER_SCRIPT "${LINKER_SCRIPTS_DIR}/${TARGET_CHIP}.ld")
 
-target_compile_options(${TARGET_NAME} PRIVATE
-    ${CUSTOM_FLAGS}
-    ${CHIP_FLAGS}
-)
-
 target_link_options(${TARGET_NAME} PRIVATE
-    ${CUSTOM_FLAGS}
+    ${LINKER_FLAGS}
     ${CHIP_FLAGS}
     "-T${CHIP_LINKER_SCRIPT}"
     -Wl,-Map=${CMAKE_BINARY_DIR}/${TARGET_NAME}.map
@@ -72,6 +65,6 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/esp-stub-lib)
 target_link_libraries(${TARGET_NAME} PRIVATE esp-stub-lib)
 
 add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
-    COMMAND ${CMAKE_SOURCE_DIR}/tools/elf2json.py ${CMAKE_BINARY_DIR}/${TARGET_NAME}${CMAKE_EXECUTABLE_SUFFIX_CXX} ${CMAKE_BINARY_DIR}/${TARGET_CHIP}.json
+    COMMAND ${CMAKE_SOURCE_DIR}/tools/elf2json.py ${CMAKE_BINARY_DIR}/${TARGET_NAME}${CMAKE_EXECUTABLE_SUFFIX_C} ${CMAKE_BINARY_DIR}/${TARGET_CHIP}.json
     COMMENT "Running elf2json.py to produce a JSON file output"
 )
