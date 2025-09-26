@@ -1,10 +1,15 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ */
 #include <esp-stub-lib/rom_wrappers.h>
 #include "support/LogMock.h"
 
-LogMock& getUartLibLog()
+LogMock &getUartLibLog()
 {
-  static LogMock obj;
-  return obj;
+    static LogMock obj;
+    return obj;
 }
 
 #ifdef __cplusplus

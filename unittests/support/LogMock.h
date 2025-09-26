@@ -73,8 +73,10 @@ public:
      *
      * @return std::stringstream&
      */
-    std::stringstream& log()
-    { return m_log_stream; }
+    std::stringstream &log()
+    {
+        return m_log_stream;
+    }
 
     /**
      * @brief get saved log record
@@ -82,9 +84,10 @@ public:
      *
      * @return std::string
      */
-    std::string popRecord() {
+    std::string popRecord()
+    {
         std::string log{};
-        if(!m_logs.empty()) {
+        if (!m_logs.empty()) {
             log = m_logs.front();
             m_logs.pop_front();
         }
@@ -106,9 +109,10 @@ public:
      * @param items_cnt
      */
     template<typename T>
-    void logBuffer(const T* buffer, size_t items_cnt) {
+    void logBuffer(const T* buffer, size_t items_cnt)
+    {
         log() << std::dec << "items=" << items_cnt << " {";
-        for(size_t i = 0; i < items_cnt; ++i) {
+        for (size_t i = 0; i < items_cnt; ++i) {
             log() << buffer[i] << ", ";
         }
         log() << "}";
@@ -123,16 +127,17 @@ public:
      * @param items_cnt
      */
     template<typename T>
-    void logBuffer8(const T* buffer, size_t items_cnt) {
+    void logBuffer8(const T* buffer, size_t items_cnt)
+    {
         const std::uint8_t* buf8{reinterpret_cast<const std::uint8_t*>(buffer)};
         constexpr size_t kItemSize{sizeof(buffer[0])};
-        const size_t buff8_size{items_cnt*kItemSize};
+        const size_t buff8_size{items_cnt * kItemSize};
 
         log() << std::dec << "items=" << items_cnt << ", size=" << buff8_size << std::hex << " B 0x{"
-            << std::setfill('0');
-        for(size_t i = 0; i < items_cnt; ++i) {
-            for(size_t bi = 0; bi < kItemSize; ++bi) {
-                log() << std::setw(2) << static_cast<int>(buf8[bi+kItemSize*i]);
+              << std::setfill('0');
+        for (size_t i = 0; i < items_cnt; ++i) {
+            for (size_t bi = 0; bi < kItemSize; ++bi) {
+                log() << std::setw(2) << static_cast<int>(buf8[bi + kItemSize * i]);
             }
             log() << " ";
         }
@@ -144,7 +149,8 @@ public:
      * so it can be retrieved later by popRecord()
      *
      */
-    void saveLog() {
+    void saveLog()
+    {
         m_logs.push_back(m_log_stream.str());
         m_log_stream.str(std::string());
     }
@@ -158,10 +164,10 @@ public:
      * @param value value to store
      */
     template<typename T>
-    void addData(const std::string& name, T value)
+    void addData(const std::string &name, T value)
     {
         auto it = m_named_data.find(name);
-        if(it == m_named_data.end()) {
+        if (it == m_named_data.end()) {
             NamedData empty;
             auto res = m_named_data.insert({name, empty});
             it = res.first;
@@ -177,10 +183,10 @@ public:
      * @param value
      */
     template<typename T>
-    void returnData(const std::string& name, T value)
+    void returnData(const std::string &name, T value)
     {
         auto it = m_named_data.find(name);
-        if(it == m_named_data.end()) {
+        if (it == m_named_data.end()) {
             NamedData empty;
             auto res = m_named_data.insert({name, empty});
             it = res.first;
@@ -198,13 +204,13 @@ public:
      * @return false    data does not exists
      */
     template<typename T>
-    bool popData(const std::string& name, T* pop_var)
+    bool popData(const std::string &name, T* pop_var)
     {
         auto it = m_named_data.find(name);
-        if(it == m_named_data.end()) {
+        if (it == m_named_data.end()) {
             return false;
         }
-        if(it->second.empty()) {
+        if (it->second.empty()) {
             return false;
         }
         *pop_var = std::any_cast<T>(it->second.front());
@@ -217,8 +223,9 @@ public:
         m_named_data.clear();
     }
 
-    void printAllLogs(std::ostream& out) {
-        for(auto log : m_logs) {
+    void printAllLogs(std::ostream &out)
+    {
+        for (auto log : m_logs) {
             out << log << "\n";
         }
     }
@@ -229,6 +236,5 @@ private:
     LogRecords m_logs;
     std::map<std::string, NamedData> m_named_data;
 };
-
 
 #endif
