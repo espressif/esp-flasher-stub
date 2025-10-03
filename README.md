@@ -37,14 +37,18 @@ Then run the following export script in every terminal where the project is used
 
 ### Esptool
 
-[Esptool](https://github.com/espressif/esptool/) is needed for ELF file analysis. Run the following commands in order to install it:
+[Esptool](https://github.com/espressif/esptool/) is needed for ELF file analysis.
+
+**Virtual Environment Requirement**: It is strongly recommended to use a virtual environment for installing esptool to avoid conflicts with system packages and ensure reproducible builds. The virtual environment isolates the Python dependencies and prevents version conflicts that could affect the build process.
+
+Run the following commands in order to install it:
 ```sh
 python -m venv venv
 source venv/bin/activate
 pip install esptool
 ```
 
-Run the following command in every terminal where the project is used:
+**Important**: Run the following command in every terminal where the project is used to activate the virtual environment:
 ```sh
 source venv/bin/activate
 ```
