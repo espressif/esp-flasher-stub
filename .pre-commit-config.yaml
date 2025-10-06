@@ -22,7 +22,7 @@ repos:
         args: ['--config', '.check_copyright_config.yaml']
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -32,20 +32,20 @@ repos:
       - id: double-quote-string-fixer
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.2
+    rev: v0.13.3
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.16.1
+    rev: v1.18.2
     hooks:
       - id: mypy
         additional_dependencies: []
 
   - repo: https://github.com/lyz-code/yamlfix/
-    rev: 1.17.0
+    rev: 1.18.0
     hooks:
       - id: yamlfix
 
