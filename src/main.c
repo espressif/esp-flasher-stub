@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <esp-stub-lib/flash.h>
 #include "slip.h"
+#include "command_handler.h"
 
 #ifdef ESP8266
 __asm__(
@@ -18,6 +19,8 @@ __asm__(
     "j esp_main;");
 #endif //ESP8266
 
+static uint8_t s_command_buffer[MAX_COMMAND_SIZE] __attribute__((aligned(4)));
+
 void esp_main(void)
 {
     void *flash_state = NULL;
@@ -27,7 +30,13 @@ void esp_main(void)
     const uint8_t greeting[4] = {'O', 'H', 'A', 'I'};
     slip_send_frame(&greeting, sizeof(greeting));
 
-    // TODO: Implement command loop
+    for (;;) {
+        // TODO: Implement receiving SLIP frame
+        size_t len = 0;
+        if (len > 0) {
+            handle_command(s_command_buffer, len);
+        }
+    }
 
     // Cleanup
     if (flash_state) {
