@@ -1,0 +1,43 @@
+---
+:cmock:
+  # Core configuration
+  :plugins: []                     # What plugins should be used by CMock?
+  :verbosity: 2                    # the options being 0 errors only, 1 warnings and errors, 2 normal info, 3 verbose
+  :when_no_prototypes: :warn       # the options being :ignore, :warn, or :error
+
+  # File configuration
+  :mock_path: './build/mocks'      # Subdirectory to store mocks when generated (default: mocks)
+  :skeleton_path: ''               # Subdirectory to store stubs when generated (default: '')
+  :mock_prefix: 'Mock'             # Prefix to append to filenames for mocks
+  :mock_suffix: ''                 # Suffix to append to filenames for mocks
+
+  # Parser configuration
+  :strippables: ['(?:__attribute__\s*\([ (]*.*?[ )]*\)+)']
+  :attributes:
+    - __ramfunc
+    - __irq
+    - __fiq
+    - register
+    - extern
+  :c_calling_conventions:
+    - __stdcall
+    - __cdecl
+    - __fastcall
+  :treat_externs: :exclude         # the options being :include or :exclude
+  :treat_inlines: :exclude         # the options being :include or :exclude
+
+  # Type handling configuration
+  :memcmp_if_unknown: true         # allow cmock to use the memory comparison assertions for unknown types
+  :when_ptr: :compare_data         # hint to cmock how to handle pointers in general, the options being :compare_ptr, :compare_data, or :smart
+
+  # Mock generation configuration
+  :weak: ''                        # Symbol to use to declare weak functions
+  :enforce_strict_ordering: false  # Do we want cmock to enforce ordering of all function calls?
+  :fail_on_unexpected_calls: true  # Do we want cmock to fail when it encounters a function call that wasn't expected?
+  :callback_include_count: true    # Do we want cmock to include the number of calls to this callback, when using callbacks?
+  :callback_after_arg_check: false # Do we want cmock to enforce an argument check first when using a callback?
+  :includes:                       # You can add additional includes here, or specify the location with the options below
+    - unity.h
+  :exclude_setjmp_h: false         # Don't use setjmp when running CMock. Note that this might result in late reporting or out-of-order failures.
+
+colour: true
