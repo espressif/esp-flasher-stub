@@ -3,9 +3,6 @@ name: Host Tests
 
 on:
   push:
-    branches: [main, master, develop, 'feature/*', 'fix/*', 'hotfix/*']
-  pull_request:
-    branches: [main, master, develop]
 
 jobs:
   host-tests:
