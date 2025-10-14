@@ -1,0 +1,41 @@
+---
+name: Host Tests
+
+on:
+  push:
+    branches: [main, master, develop, 'feature/*', 'fix/*', 'hotfix/*']
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            ruby
+
+      - name: Cache CMake build
+        uses: actions/cache@v4
+        with:
+          path: unittests/host/build
+          key: ${{ runner.os }}-cmake-${{ hashFiles('unittests/host/CMakeLists.txt', 'unittests/host/cmock_config.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-
+
+      - name: Run host tests
+        run: |-
+          cd unittests/host
+          chmod +x run-tests.sh
+          ./run-tests.sh
