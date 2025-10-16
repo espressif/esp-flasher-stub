@@ -1,3 +1,12 @@
 [submodule "esp-stub-lib"]
 	path = esp-stub-lib
 	url = https://github.com/espressif/esp-stub-lib
+	shallow = true
+[submodule "unittests/CMock"]
+	path = unittests/CMock
+	url = https://github.com/ThrowTheSwitch/CMock.git
+	shallow = true
+[submodule "unittests/Unity"]
+	path = unittests/Unity
+	url = https://github.com/ThrowTheSwitch/Unity.git
+	shallow = true
