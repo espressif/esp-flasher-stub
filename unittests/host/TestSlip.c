@@ -6,6 +6,7 @@
 
 #include "unity.h"
 #include "mock_rom_wrappers.h"
+#include "mock_uart.h"
 #include "slip.h"
 #include <string.h>
 
@@ -14,6 +15,7 @@ void setUp(void)
 {
     /* Initialize mocks */
     mock_rom_wrappers_Init();
+    mock_uart_Init();
 }
 
 void tearDown(void)
@@ -21,6 +23,8 @@ void tearDown(void)
     /* Clean up mocks */
     mock_rom_wrappers_Verify();
     mock_rom_wrappers_Destroy();
+    mock_uart_Verify();
+    mock_uart_Destroy();
 }
 
 /* Test cases */
