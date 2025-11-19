@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include "target/soc_utils.h"
 #include "slip.h"
 #include "commands.h"
 #include "command_handler.h"
@@ -40,16 +41,6 @@ static inline void s_send_error_response(uint8_t command, esp_response_code_t re
 static inline void s_send_success_response(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size)
 {
     s_send_response_packet(command, value, data, data_size, RESPONSE_SUCCESS);
-}
-
-static inline uint32_t read_reg(uint32_t reg)
-{
-    return *(volatile uint32_t*)reg;
-}
-
-static inline void write_reg(uint32_t reg, uint32_t val)
-{
-    *(volatile uint32_t*)reg = val;
 }
 
 static void s_sync(void)
@@ -249,9 +240,9 @@ static void s_write_reg(const uint8_t* buffer, uint16_t size)
 
         uint32_t write_value = value & mask;
         if (mask != 0xFFFFFFFF) {
-            write_value |= read_reg(addr) & ~mask;
+            write_value |= REG_READ(addr) & ~mask;
         }
-        write_reg(addr, write_value);
+        REG_WRITE(addr, write_value);
     }
 
     s_send_success_response(ESP_WRITE_REG, 0, NULL, 0);
@@ -265,9 +256,7 @@ static void s_read_reg(const uint8_t* buffer, uint16_t size)
     }
 
     uint32_t addr = *(const uint32_t*)buffer;
-
-    const uint32_t value = read_reg(addr);
-
+    const uint32_t value = REG_READ(addr);
     s_send_success_response(ESP_READ_REG, value, NULL, 0);
 }
 
@@ -447,6 +436,8 @@ void handle_command(const uint8_t *buffer, size_t size)
     uint8_t command = *ptr++;
     uint16_t packet_size = *(const uint16_t*)ptr;
     ptr += sizeof(packet_size);
+    uint32_t checksum = *(const uint32_t*)ptr;
+    ptr += sizeof(checksum);
 
     const uint8_t* data = ptr;
 
