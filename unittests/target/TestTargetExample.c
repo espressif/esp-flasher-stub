@@ -9,10 +9,10 @@
 #include <string.h>  // For string manipulation functions
 #include <stdio.h>   // For stdio functions
 #include <stdint.h>  // For uint8_t
-#include <esp-stub-lib/rom_wrappers.h>  // For UART functions
+#include <esp-stub-lib/uart.h>  // For UART functions
 
 // Forward declarations
-void stub_target_uart_init(uint8_t uart_num, uint32_t baudrate);
+void stub_target_uart_init(uint8_t uart_num);
 
 /* Test setup and teardown */
 void setUp(void)

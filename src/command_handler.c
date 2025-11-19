@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
-#include "target/soc_utils.h"
+#include <esp-stub-lib/soc_utils.h>
 #include "slip.h"
 #include "commands.h"
 #include "command_handler.h"

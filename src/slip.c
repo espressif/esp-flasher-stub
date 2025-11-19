@@ -5,7 +5,7 @@
  */
 
 #include <stdint.h>
-#include <esp-stub-lib/rom_wrappers.h>
+#include <esp-stub-lib/uart.h>
 #include "command_handler.h"
 #include "slip.h"
 
@@ -40,6 +40,8 @@ static slip_recv_ctx_t s_recv_ctx = {
     .frame_complete = false,
     .frame_error = false
 };
+
+static slip_state_t s_state = STATE_NO_FRAME;
 
 void slip_send_frame_delimiter(void)
 {
@@ -88,17 +90,15 @@ void slip_send_frame(const void *data, size_t size)
 
 void slip_recv_byte(uint8_t byte)
 {
-    static slip_state_t state = STATE_NO_FRAME;
-
     // If frame is already complete or has error, ignore new bytes until reset
     if (s_recv_ctx.frame_complete || s_recv_ctx.frame_error) {
         return;
     }
-    switch (state) {
+    switch (s_state) {
     case STATE_NO_FRAME:
         if (byte == SLIP_END) {
             // Start new frame
-            state = STATE_IN_FRAME;
+            s_state = STATE_IN_FRAME;
             s_recv_ctx.frame_length = 0;
         }
         break;
@@ -109,24 +109,24 @@ void slip_recv_byte(uint8_t byte)
             if (s_recv_ctx.frame_length > 0) {
                 s_recv_ctx.frame_complete = true;
             }
-            state = STATE_NO_FRAME;
+            s_state = STATE_NO_FRAME;
         } else if (byte == SLIP_ESC) {
-            state = STATE_ESCAPING;
+            s_state = STATE_ESCAPING;
         } else {
             // Add byte to buffer
             if (s_recv_ctx.frame_length < s_recv_ctx.buffer_size) {
                 s_recv_ctx.buffer[s_recv_ctx.frame_length] = byte;
-                s_recv_ctx.frame_length++;
+                ++s_recv_ctx.frame_length;
             } else {
                 // Buffer overflow
                 s_recv_ctx.frame_error = true;
-                state = STATE_NO_FRAME;
+                s_state = STATE_NO_FRAME;
             }
         }
         break;
 
     case STATE_ESCAPING:
-        state = STATE_IN_FRAME;
+        s_state = STATE_IN_FRAME;
         if (byte == SLIP_ESC_END) {
             byte = SLIP_END;
         } else if (byte == SLIP_ESC_ESC) {
@@ -134,18 +134,18 @@ void slip_recv_byte(uint8_t byte)
         } else {
             // Invalid escape sequence, mark error and reset
             s_recv_ctx.frame_error = true;
-            state = STATE_NO_FRAME;
+            s_state = STATE_NO_FRAME;
             return;
         }
 
         // Add escaped byte to buffer
         if (s_recv_ctx.frame_length < s_recv_ctx.buffer_size) {
             s_recv_ctx.buffer[s_recv_ctx.frame_length] = byte;
-            s_recv_ctx.frame_length++;
+            ++s_recv_ctx.frame_length;
         } else {
             // Buffer overflow
             s_recv_ctx.frame_error = true;
-            state = STATE_NO_FRAME;
+            s_state = STATE_NO_FRAME;
         }
         break;
     }
@@ -174,4 +174,5 @@ void slip_recv_reset(void)
     s_recv_ctx.frame_length = 0;
     s_recv_ctx.frame_complete = false;
     s_recv_ctx.frame_error = false;
+    s_state = STATE_NO_FRAME;
 }

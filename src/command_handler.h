@@ -13,8 +13,8 @@
 extern "C" {
 #endif
 
-// 0x4000 is the maximum data size sent by esptool, so keeping for the compatibility
-#define ESPTOOL_MAX_DATA_SIZE 0x4000U
+// 0x4000 plus 0xFF is the maximum data size sent by esptool (WRITE_FLASH command), so keeping for the compatibility
+#define ESPTOOL_MAX_DATA_SIZE (0x4000U + 0xFFU)
 #define HEADER_SIZE 8U
 #define MAX_COMMAND_SIZE (HEADER_SIZE + ESPTOOL_MAX_DATA_SIZE)
 
