@@ -39,10 +39,15 @@ void esp_main(void)
     slip_send_frame(&greeting, sizeof(greeting));
 
     for (;;) {
-        // TODO: Implement receiving SLIP frame
-        size_t len = 0;
-        if (len > 0) {
-            handle_command(s_command_buffer, len);
+        if (slip_is_frame_complete()) {
+            size_t frame_length;
+            const uint8_t *frame_data = slip_get_frame_data(&frame_length);
+            handle_command(frame_data, frame_length);
+            slip_recv_reset();
+        }
+
+        if (slip_is_frame_error()) {
+            slip_recv_reset();
         }
     }
 
