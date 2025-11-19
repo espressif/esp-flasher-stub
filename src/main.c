@@ -23,6 +23,14 @@ static uint8_t s_command_buffer[MAX_COMMAND_SIZE] __attribute__((aligned(4)));
 
 void esp_main(void)
 {
+    extern uint32_t _bss_start;
+    extern uint32_t _bss_end;
+
+    /* Zero BSS section */
+    for (uint32_t *p = &_bss_start; p < &_bss_end; p++) {
+        *p = 0;
+    }
+
     void *flash_state = NULL;
     stub_lib_flash_init(&flash_state);
 
