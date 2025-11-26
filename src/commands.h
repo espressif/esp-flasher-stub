@@ -61,6 +61,7 @@ typedef enum {
  * @brief ESP command expected data sizes (in bytes)
  * Used for parameter validation in command handlers
  */
+#define SYNC_SIZE               36
 #define FLASH_BEGIN_SIZE        16
 #define FLASH_DATA_HEADER_SIZE  16
 #define FLASH_END_SIZE          4
