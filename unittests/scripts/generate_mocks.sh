@@ -96,6 +96,10 @@ generate_mocks() {
     print_status "Generating mock for rom_wrappers..."
     ruby CMock/scripts/create_mock.rb ../esp-stub-lib/include/esp-stub-lib/rom_wrappers.h
 
+    # Generate mock for uart
+    print_status "Generating mock for uart..."
+    ruby CMock/scripts/create_mock.rb ../esp-stub-lib/include/esp-stub-lib/uart.h
+
     print_status "Mock generation completed successfully!"
 }
 

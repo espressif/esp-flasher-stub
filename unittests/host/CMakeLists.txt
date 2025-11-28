@@ -19,6 +19,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib
     ${CMAKE_CURRENT_BINARY_DIR}/mocks
+    ${CMAKE_CURRENT_SOURCE_DIR}  # For soc/ directory
 )
 
 # Test framework sources
@@ -29,19 +30,24 @@ set(CMOCK_SOURCES ${CMOCK_ROOT}/src/cmock.c)
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.h
            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.c
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.h
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.c
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_mocks.sh
     DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/rom_wrappers.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/uart.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_mocks.sh
         ${CMOCK_ROOT}/scripts/create_mock.rb
         ${CMOCK_ROOT}/lib/cmock.rb
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Generating CMock files for rom_wrappers"
+    COMMENT "Generating CMock files"
 )
 
 add_custom_target(generate_mocks
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.h
             ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.c
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.h
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.c
 )
 
 # Helper function to add host tests
@@ -56,6 +62,7 @@ function(add_host_test TEST_NAME)
         ${UNITY_SOURCES}
         ${CMOCK_SOURCES}
         ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.c
+        ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.c
     )
 
     # Depend on mock generation
