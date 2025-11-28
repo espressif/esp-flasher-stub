@@ -39,31 +39,23 @@ extern "C" {
 #define ESP_RUN_USER_CODE       0xD3
 
 /**
- * @brief Response status - SUCCESS or FAIL
- * Should be max 0xFF to be compatible with protocol
+ * @brief ESP command response codes (16-bit)
+ * Wire format: big-endian (2 bytes, high byte first)
  */
-#define SUCCESS 0x00
-#define FAIL    0x01
-
-/**
- * @brief ESP command error codes
- * Used as the error_msg byte when status is FAIL
- * Should be max 0xFF to be compatible with protocol
- */
-#define NO_ERROR            0x00
-
-#define BAD_DATA_LEN        0xC0
-#define BAD_DATA_CHECKSUM   0xC1
-#define BAD_BLOCKSIZE       0xC2
-#define INVALID_COMMAND     0xC3
-#define FAILED_SPI_OP       0xC4
-#define FAILED_SPI_UNLOCK   0xC5
-#define NOT_IN_FLASH_MODE   0xC6
-#define INFLATE_ERROR       0xC7
-#define NOT_ENOUGH_DATA     0xC8
-#define TOO_MUCH_DATA       0xC9
-
-#define CMD_NOT_IMPLEMENTED 0xFF
+typedef enum {
+    RESPONSE_SUCCESS             = 0x0000,
+    RESPONSE_BAD_DATA_LEN        = 0xC000,
+    RESPONSE_BAD_DATA_CHECKSUM   = 0xC100,
+    RESPONSE_BAD_BLOCKSIZE       = 0xC200,
+    RESPONSE_INVALID_COMMAND     = 0xC300,
+    RESPONSE_FAILED_SPI_OP       = 0xC400,
+    RESPONSE_FAILED_SPI_UNLOCK   = 0xC500,
+    RESPONSE_NOT_IN_FLASH_MODE   = 0xC600,
+    RESPONSE_INFLATE_ERROR       = 0xC700,
+    RESPONSE_NOT_ENOUGH_DATA     = 0xC800,
+    RESPONSE_TOO_MUCH_DATA       = 0xC900,
+    RESPONSE_CMD_NOT_IMPLEMENTED = 0xFF00
+} esp_response_code_t;
 
 /**
  * @brief ESP command expected data sizes (in bytes)
@@ -88,15 +80,6 @@ extern "C" {
 #define READ_FLASH_SIZE         16
 #define ERASE_FLASH_SIZE        0
 #define ERASE_REGION_SIZE       8
-
-/**
- * @brief Combined response structure with status and error
- * Used to send response status and error code together
- */
-struct esp_response {
-    uint8_t status;     // response_status_t value (SUCCESS/FAIL)
-    uint8_t error;      // error_code_t value
-};
 
 #ifdef __cplusplus
 }

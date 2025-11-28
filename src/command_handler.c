@@ -30,17 +30,16 @@ static struct operation_state s_flash_state = {0};
 static struct operation_state s_memory_state = {0};
 
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size,
-                                   struct esp_response status);
+                                   esp_response_code_t response);
 
-static inline void s_send_error_response(uint8_t command, struct esp_response response)
+static inline void s_send_error_response(uint8_t command, esp_response_code_t response)
 {
     s_send_response_packet(command, 0, NULL, 0, response);
 }
 
 static inline void s_send_success_response(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size)
 {
-    struct esp_response response = {SUCCESS, NO_ERROR};
-    s_send_response_packet(command, value, data, data_size, response);
+    s_send_response_packet(command, value, data, data_size, RESPONSE_SUCCESS);
 }
 
 static inline uint32_t read_reg(uint32_t reg)
@@ -61,8 +60,7 @@ static void s_sync(void)
 static void s_flash_begin(const uint8_t* buffer, uint16_t size)
 {
     if (size != FLASH_BEGIN_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_FLASH_BEGIN, response);
+        s_send_error_response(ESP_FLASH_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
@@ -82,14 +80,12 @@ static void s_flash_begin(const uint8_t* buffer, uint16_t size)
 static void s_flash_data(const uint8_t* buffer, uint16_t size)
 {
     if (size < FLASH_DATA_HEADER_SIZE) {
-        struct esp_response response = {FAIL, NOT_ENOUGH_DATA};
-        s_send_error_response(ESP_FLASH_DATA, response);
+        s_send_error_response(ESP_FLASH_DATA, RESPONSE_NOT_ENOUGH_DATA);
         return;
     }
 
     if (!s_flash_state.in_progress) {
-        struct esp_response response = {FAIL, NOT_IN_FLASH_MODE};
-        s_send_error_response(ESP_FLASH_DATA, response);
+        s_send_error_response(ESP_FLASH_DATA, RESPONSE_NOT_IN_FLASH_MODE);
         return;
     }
 
@@ -101,8 +97,7 @@ static void s_flash_data(const uint8_t* buffer, uint16_t size)
     const uint16_t actual_data_size = (uint16_t)(size - FLASH_DATA_HEADER_SIZE);
 
     if (data_len != actual_data_size) {
-        struct esp_response response = {FAIL, TOO_MUCH_DATA};
-        s_send_error_response(ESP_FLASH_DATA, response);
+        s_send_error_response(ESP_FLASH_DATA, RESPONSE_TOO_MUCH_DATA);
         return;
     }
 
@@ -119,14 +114,12 @@ static void s_flash_data(const uint8_t* buffer, uint16_t size)
 static void s_flash_end(const uint8_t* buffer, uint16_t size)
 {
     if (size != FLASH_END_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_FLASH_END, response);
+        s_send_error_response(ESP_FLASH_END, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     if (!s_flash_state.in_progress) {
-        struct esp_response response = {FAIL, NOT_IN_FLASH_MODE};
-        s_send_error_response(ESP_FLASH_END, response);
+        s_send_error_response(ESP_FLASH_END, RESPONSE_NOT_IN_FLASH_MODE);
         return;
     }
 
@@ -151,8 +144,7 @@ static void s_flash_end(const uint8_t* buffer, uint16_t size)
 static void s_mem_begin(const uint8_t* buffer, uint16_t size)
 {
     if (size != MEM_BEGIN_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_MEM_BEGIN, response);
+        s_send_error_response(ESP_MEM_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
@@ -171,14 +163,12 @@ static void s_mem_begin(const uint8_t* buffer, uint16_t size)
 static void s_mem_data(const uint8_t* buffer, uint16_t size)
 {
     if (size < MEM_DATA_HEADER_SIZE) {
-        struct esp_response response = {FAIL, NOT_ENOUGH_DATA};
-        s_send_error_response(ESP_MEM_DATA, response);
+        s_send_error_response(ESP_MEM_DATA, RESPONSE_NOT_ENOUGH_DATA);
         return;
     }
 
     if (!s_memory_state.in_progress) {
-        struct esp_response response = {FAIL, NOT_IN_FLASH_MODE};
-        s_send_error_response(ESP_MEM_DATA, response);
+        s_send_error_response(ESP_MEM_DATA, RESPONSE_NOT_IN_FLASH_MODE);
         return;
     }
 
@@ -190,8 +180,7 @@ static void s_mem_data(const uint8_t* buffer, uint16_t size)
     const uint16_t actual_data_size = (uint16_t)(size - MEM_DATA_HEADER_SIZE);
 
     if (data_len != actual_data_size) {
-        struct esp_response response = {FAIL, TOO_MUCH_DATA};
-        s_send_error_response(ESP_MEM_DATA, response);
+        s_send_error_response(ESP_MEM_DATA, RESPONSE_TOO_MUCH_DATA);
         return;
     }
 
@@ -206,14 +195,12 @@ static void s_mem_data(const uint8_t* buffer, uint16_t size)
 static void s_mem_end(const uint8_t* buffer, uint16_t size)
 {
     if (size != MEM_END_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_MEM_END, response);
+        s_send_error_response(ESP_MEM_END, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     if (!s_memory_state.in_progress) {
-        struct esp_response response = {FAIL, NOT_IN_FLASH_MODE};
-        s_send_error_response(ESP_MEM_END, response);
+        s_send_error_response(ESP_MEM_END, RESPONSE_NOT_IN_FLASH_MODE);
         return;
     }
 
@@ -245,8 +232,7 @@ static void s_mem_end(const uint8_t* buffer, uint16_t size)
 static void s_write_reg(const uint8_t* buffer, uint16_t size)
 {
     if (size == 0 || size % WRITE_REG_ENTRY_SIZE != 0) {
-        struct esp_response response = {FAIL, NOT_ENOUGH_DATA};
-        s_send_error_response(ESP_WRITE_REG, response);
+        s_send_error_response(ESP_WRITE_REG, RESPONSE_NOT_ENOUGH_DATA);
         return;
     }
 
@@ -274,8 +260,7 @@ static void s_write_reg(const uint8_t* buffer, uint16_t size)
 static void s_read_reg(const uint8_t* buffer, uint16_t size)
 {
     if (size != READ_REG_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_READ_REG, response);
+        s_send_error_response(ESP_READ_REG, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
@@ -289,149 +274,127 @@ static void s_read_reg(const uint8_t* buffer, uint16_t size)
 static void s_spi_attach(const uint8_t* buffer, uint16_t size)
 {
     if (size != SPI_ATTACH_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_SPI_ATTACH, response);
+        s_send_error_response(ESP_SPI_ATTACH, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_SPI_ATTACH, response);
+    s_send_error_response(ESP_SPI_ATTACH, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_spi_set_params(const uint8_t* buffer, uint16_t size)
 {
     if (size != SPI_SET_PARAMS_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_SPI_SET_PARAMS, response);
+        s_send_error_response(ESP_SPI_SET_PARAMS, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_SPI_SET_PARAMS, response);
+    s_send_error_response(ESP_SPI_SET_PARAMS, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_change_baudrate(const uint8_t* buffer, uint16_t size)
 {
     if (size != CHANGE_BAUDRATE_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_CHANGE_BAUDRATE, response);
+        s_send_error_response(ESP_CHANGE_BAUDRATE, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_CHANGE_BAUDRATE, response);
+    s_send_error_response(ESP_CHANGE_BAUDRATE, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_flash_defl_begin(const uint8_t* buffer, uint16_t size)
 {
     const uint8_t expected_size = sizeof(uint32_t);
     if (size != expected_size) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_FLASH_DEFL_BEGIN, response);
+        s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_FLASH_DEFL_BEGIN, response);
+    s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_flash_defl_data(const uint8_t* buffer, uint16_t size)
 {
     const uint8_t expected_size = 4 * sizeof(uint32_t);
     if (size < expected_size) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_FLASH_DEFL_DATA, response);
+        s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_FLASH_DEFL_DATA, response);
+    s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_flash_defl_end(const uint8_t* buffer, uint16_t size)
 {
     const uint8_t expected_size = sizeof(uint32_t);
     if (size != expected_size) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_FLASH_DEFL_END, response);
+        s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_FLASH_DEFL_END, response);
+    s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_spi_flash_md5(const uint8_t* buffer, uint16_t size)
 {
     const uint8_t expected_size = 4 * sizeof(uint32_t);
     if (size != expected_size) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_SPI_FLASH_MD5, response);
+        s_send_error_response(ESP_SPI_FLASH_MD5, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_SPI_FLASH_MD5, response);
+    s_send_error_response(ESP_SPI_FLASH_MD5, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_get_security_info(const uint8_t* buffer, uint16_t size)
 {
     if (size != GET_SECURITY_INFO_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_GET_SECURITY_INFO, response);
+        s_send_error_response(ESP_GET_SECURITY_INFO, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_GET_SECURITY_INFO, response);
+    s_send_error_response(ESP_GET_SECURITY_INFO, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_read_flash(const uint8_t* buffer, uint16_t size)
 {
     const uint8_t expected_size = 4 * sizeof(uint32_t);
     if (size != expected_size) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_READ_FLASH, response);
+        s_send_error_response(ESP_READ_FLASH, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_READ_FLASH, response);
+    s_send_error_response(ESP_READ_FLASH, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_erase_flash(const uint8_t* buffer, uint16_t size)
 {
     if (size != ERASE_FLASH_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_ERASE_FLASH, response);
+        s_send_error_response(ESP_ERASE_FLASH, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_ERASE_FLASH, response);
+    s_send_error_response(ESP_ERASE_FLASH, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 static void s_erase_region(const uint8_t* buffer, uint16_t size)
 {
     if (size != ERASE_REGION_SIZE) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(ESP_ERASE_REGION, response);
+        s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
     (void)buffer;
-    struct esp_response response = {FAIL, CMD_NOT_IMPLEMENTED};
-    s_send_error_response(ESP_ERASE_REGION, response);
+    s_send_error_response(ESP_ERASE_REGION, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
 inline uint32_t calculate_checksum(const void* data, uint16_t size)
@@ -445,7 +408,7 @@ inline uint32_t calculate_checksum(const void* data, uint16_t size)
 }
 
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size,
-                                   struct esp_response response)
+                                   esp_response_code_t response)
 {
     uint8_t response_buffer[MAX_RESPONSE_SIZE];
 
@@ -470,8 +433,9 @@ static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* dat
         memcpy(ptr, data, data_size);  // Keep memcpy for bulk data
         ptr += data_size;
     }
-    *ptr++ = response.status;
-    *ptr++ = response.error;
+    // Write response code in big-endian format (remote reads as ">H")
+    *ptr++ = (uint8_t)(((uint16_t)response >> 8) & 0xFF);
+    *ptr++ = (uint8_t)((uint16_t)response & 0xFF);
 
     slip_send_frame(response_buffer, total_frame_size);
 }
@@ -487,14 +451,12 @@ void handle_command(const uint8_t *buffer, size_t size)
     const uint8_t* data = ptr;
 
     if (direction != DIRECTION_REQUEST) {
-        struct esp_response response = {FAIL, INVALID_COMMAND};
-        s_send_error_response(command, response);
+        s_send_error_response(command, RESPONSE_INVALID_COMMAND);
         return;
     }
 
     if (size != (size_t)(packet_size + HEADER_SIZE)) {
-        struct esp_response response = {FAIL, BAD_DATA_LEN};
-        s_send_error_response(command, response);
+        s_send_error_response(command, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
@@ -587,8 +549,7 @@ void handle_command(const uint8_t *buffer, size_t size)
         break;
 
     default: {
-        struct esp_response response = {FAIL, INVALID_COMMAND};
-        s_send_error_response(command, response);
+        s_send_error_response(command, RESPONSE_INVALID_COMMAND);
         break;
     }
     }
