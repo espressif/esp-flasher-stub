@@ -14,9 +14,9 @@
 #include <sys/reent.h> // For _reent structure
 
 // Include esp-stub-lib headers for UART functions
-#include <esp-stub-lib/rom_wrappers.h>
+#include <esp-stub-lib/uart.h>
 
-void stub_target_uart_init(uint8_t uart_num, uint32_t baudrate);
+void stub_target_uart_init(uint8_t uart_num);
 
 int putchar(int c)
 {

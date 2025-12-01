@@ -1,6 +1,7 @@
 add_executable(${TARGET_NAME}
     "main.c"
     "slip.c"
+    "command_handler.c"
 )
 
 target_compile_options(${TARGET_NAME} PRIVATE
