@@ -10,6 +10,10 @@
 #include "slip.h"
 #include "commands.h"
 #include "command_handler.h"
+#include <esp-stub-lib/rom_wrappers.h>
+#include <esp-stub-lib/err.h>
+#include <esp-stub-lib/security.h>
+#include <esp-stub-lib/uart.h>
 
 struct operation_state {
     uint32_t total_size;
@@ -43,9 +47,24 @@ static inline void s_send_success_response(uint8_t command, uint32_t value, uint
     s_send_response_packet(command, value, data, data_size, RESPONSE_SUCCESS);
 }
 
-static void s_sync(void)
+static void s_sync(uint16_t size)
 {
-    s_send_success_response(ESP_SYNC, 0, NULL, 0);
+    /* Bootloader responds to the SYNC request with eight identical SYNC responses.
+     * Stub flasher should react the same way so SYNC could be possible with the
+     * flasher stub as well. This helps in cases when the chip cannot be reset and
+     * the flasher stub keeps running. */
+
+    if (size != SYNC_SIZE) {
+        s_send_error_response(ESP_SYNC, RESPONSE_BAD_DATA_LEN);
+        return;
+    }
+
+    /* Send 8 identical SYNC responses with value 0.
+     * ROM bootloader also sends 8 responses but with non-zero values.
+     * The value 0 is used by esptool to detect that it's talking to a flasher stub. */
+    for (int i = 0; i < 8; ++i) {
+        s_send_success_response(ESP_SYNC, 0, NULL, 0);
+    }
 }
 
 static void s_flash_begin(const uint8_t* buffer, uint16_t size)
@@ -209,9 +228,8 @@ static void s_mem_end(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_MEM_END, 0, NULL, 0);
 
     if (flag == 1) {
-        // Flush potential response data
-        // TODO: Add flush
-        // TODO: Add delay
+        // TODO: consider delay - was in previous code
+        stub_lib_uart_tx_flush();
 
         // ROM loader firstly exits the loader routine and then executes the entrypoint,
         // but for our purposes, keeping a bit of extra stuff on the stack doesn't really matter.
@@ -235,8 +253,9 @@ static void s_write_reg(const uint8_t* buffer, uint16_t size)
         uint32_t addr = reg_params[0];
         uint32_t value = reg_params[1];
         uint32_t mask = reg_params[2];
+        uint32_t delay_us = reg_params[3];
 
-        // TODO: Add delay based on delay_us
+        stub_lib_delay_us(delay_us);
 
         uint32_t write_value = value & mask;
         if (mask != 0xFFFFFFFF) {
@@ -341,15 +360,36 @@ static void s_spi_flash_md5(const uint8_t* buffer, uint16_t size)
     s_send_error_response(ESP_SPI_FLASH_MD5, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
-static void s_get_security_info(const uint8_t* buffer, uint16_t size)
+static void s_get_security_info(uint16_t size)
 {
     if (size != GET_SECURITY_INFO_SIZE) {
         s_send_error_response(ESP_GET_SECURITY_INFO, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_GET_SECURITY_INFO, RESPONSE_CMD_NOT_IMPLEMENTED);
+    uint32_t info_size = stub_lib_security_info_size();
+
+    uint8_t security_info_buf[info_size];
+    int ret = stub_lib_get_security_info(security_info_buf, sizeof(security_info_buf));
+
+    switch (ret) {
+    case STUB_LIB_OK:
+        s_send_success_response(ESP_GET_SECURITY_INFO, 0, security_info_buf, (uint16_t)info_size);
+        break;
+
+    case STUB_LIB_ERR_NOT_SUPPORTED:
+        s_send_error_response(ESP_GET_SECURITY_INFO, RESPONSE_CMD_NOT_IMPLEMENTED);
+        break;
+
+    case STUB_LIB_ERR_INVALID_ARG:
+        s_send_error_response(ESP_GET_SECURITY_INFO, RESPONSE_BAD_DATA_LEN);
+        break;
+
+    case STUB_LIB_FAIL:
+    default:
+        s_send_error_response(ESP_GET_SECURITY_INFO, RESPONSE_BAD_DATA_LEN);
+        break;
+    }
 }
 
 static void s_read_flash(const uint8_t* buffer, uint16_t size)
@@ -399,7 +439,7 @@ inline uint32_t calculate_checksum(const void* data, uint16_t size)
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size,
                                    esp_response_code_t response)
 {
-    uint8_t response_buffer[MAX_RESPONSE_SIZE];
+    uint8_t response_buffer[MAX_RESPONSE_SIZE] = {0};
 
     if (data_size > MAX_RESPONSE_DATA_SIZE) {
         data_size = MAX_RESPONSE_DATA_SIZE;
@@ -419,7 +459,7 @@ static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* dat
     ptr += sizeof(value);
 
     if (data && data_size > 0) {
-        memcpy(ptr, data, data_size);  // Keep memcpy for bulk data
+        memcpy(ptr, data, data_size);
         ptr += data_size;
     }
     // Write response code in big-endian format (remote reads as ">H")
@@ -453,7 +493,7 @@ void handle_command(const uint8_t *buffer, size_t size)
 
     switch (command) {
     case ESP_SYNC:
-        s_sync();
+        s_sync(packet_size);
         break;
 
     case ESP_FLASH_BEGIN:
@@ -517,7 +557,7 @@ void handle_command(const uint8_t *buffer, size_t size)
         break;
 
     case ESP_GET_SECURITY_INFO:
-        s_get_security_info(data, packet_size);
+        s_get_security_info(packet_size);
         break;
 
     case ESP_READ_FLASH:
