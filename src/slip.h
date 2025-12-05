@@ -15,6 +15,15 @@ extern "C" {
 #endif
 
 /**
+ * @brief Register TX function used by SLIP to send bytes
+ *
+ * The function must transmit a single byte and return 0 on success.
+ *
+ * @param tx_fn Function pointer with signature: uint8_t (*)(uint8_t)
+ */
+void slip_set_tx_fn(uint8_t (*tx_fn)(uint8_t));
+
+/**
  * @brief Send SLIP frame delimiter
  */
 void slip_send_frame_delimiter(void);
