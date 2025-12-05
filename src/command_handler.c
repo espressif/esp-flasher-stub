@@ -240,7 +240,7 @@ static void s_mem_end(const uint8_t* buffer, uint16_t size)
 
     if (flag == 1) {
         // TODO: consider delay - was in previous code
-        stub_lib_uart_tx_flush();
+        stub_lib_uart_tx_flush(UART_NUM_0);
 
         // ROM loader firstly exits the loader routine and then executes the entrypoint,
         // but for our purposes, keeping a bit of extra stuff on the stack doesn't really matter.

@@ -168,15 +168,15 @@ void esp_main(void)
     int result = UNITY_END();
 
     // Send test completion marker for load-test.py
-    stub_lib_uart_tx_flush();
+    stub_lib_uart_tx_flush(UART_NUM_0);
     printf("\n--- UNITY TEST RUN COMPLETE ---\n");
     printf("Test Results: %s\n", (result == 0) ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
     printf("--- END OF TESTS ---\n");
-    stub_lib_uart_tx_flush();
+    stub_lib_uart_tx_flush(UART_NUM_0);
 
     // Exit gracefully (could loop forever or halt depending on system requirements)
     while (1) {
-        stub_lib_uart_tx_flush();
+        stub_lib_uart_tx_flush(UART_NUM_0);
         stub_lib_delay_us(1000000);  // 1 second delay
     }
 }

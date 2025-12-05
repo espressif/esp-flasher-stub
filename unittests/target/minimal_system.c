@@ -57,7 +57,7 @@ void __system_init(void)
     stub_lib_uart_tx_one_char('\n');
 
     // Flush UART to ensure data is sent immediately
-    stub_lib_uart_tx_flush();
+    stub_lib_uart_tx_flush(UART_NUM_0);
 }
 
 // Simple sbrk implementation for heap management
