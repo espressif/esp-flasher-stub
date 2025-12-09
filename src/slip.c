@@ -6,14 +6,9 @@
 
 #include <stdint.h>
 #include <esp-stub-lib/uart.h>
+#include <esp-stub-lib/usb_serial_jtag.h>
 #include "command_handler.h"
 #include "slip.h"
-
-/* SLIP Protocol Constants */
-#define SLIP_END            0xC0    /* Frame delimiter */
-#define SLIP_ESC            0xDB    /* Escape character */
-#define SLIP_ESC_END        0xDC    /* Escaped frame delimiter */
-#define SLIP_ESC_ESC        0xDD    /* Escaped escape character */
 
 /* SLIP State Machine */
 typedef enum {
@@ -43,24 +38,34 @@ static slip_recv_ctx_t s_recv_ctx = {
 
 static slip_state_t s_state = STATE_NO_FRAME;
 
+/* TX function pointer set by transport init (defaults to UART) */
+static uint8_t (*s_tx_one_char)(uint8_t) = stub_lib_uart_tx_one_char;
+
+void slip_set_tx_fn(uint8_t (*tx_fn)(uint8_t))
+{
+    if (tx_fn) {
+        s_tx_one_char = tx_fn;
+    }
+}
+
 void slip_send_frame_delimiter(void)
 {
-    stub_lib_uart_tx_one_char(SLIP_END);
+    s_tx_one_char(SLIP_END);
 }
 
 void slip_send_frame_data(uint8_t byte)
 {
     switch (byte) {
     case SLIP_END:
-        stub_lib_uart_tx_one_char(SLIP_ESC);
-        stub_lib_uart_tx_one_char(SLIP_ESC_END);
+        s_tx_one_char(SLIP_ESC);
+        s_tx_one_char(SLIP_ESC_END);
         break;
     case SLIP_ESC:
-        stub_lib_uart_tx_one_char(SLIP_ESC);
-        stub_lib_uart_tx_one_char(SLIP_ESC_ESC);
+        s_tx_one_char(SLIP_ESC);
+        s_tx_one_char(SLIP_ESC_ESC);
         break;
     default:
-        stub_lib_uart_tx_one_char(byte);
+        s_tx_one_char(byte);
         break;
     }
 }
