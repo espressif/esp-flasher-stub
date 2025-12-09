@@ -33,9 +33,9 @@ extern "C" {
 #define ESP_FLASH_DEFL_END      0x12
 #define ESP_SPI_FLASH_MD5       0x13
 #define ESP_GET_SECURITY_INFO   0x14
-#define ESP_READ_FLASH          0xD0
-#define ESP_ERASE_FLASH         0xD1
-#define ESP_ERASE_REGION        0xD2
+#define ESP_ERASE_FLASH         0xD0
+#define ESP_ERASE_REGION        0xD1
+#define ESP_READ_FLASH          0xD2
 #define ESP_RUN_USER_CODE       0xD3
 
 /**
@@ -63,6 +63,7 @@ typedef enum {
  */
 #define SYNC_SIZE               36
 #define FLASH_BEGIN_SIZE        16
+#define FLASH_BEGIN_ENC_SIZE    20
 #define FLASH_DATA_HEADER_SIZE  16
 #define FLASH_END_SIZE          4
 #define MEM_BEGIN_SIZE          16

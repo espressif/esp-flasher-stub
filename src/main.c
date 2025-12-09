@@ -54,6 +54,7 @@ void esp_main(void)
 
     void *flash_state = NULL;
     stub_lib_flash_init(&flash_state);
+    stub_lib_flash_attach(0, false);
 
     stub_lib_uart_wait_idle(UART_NUM_0); // Wait until ROM sends response to last command
     stub_lib_uart_rominit_intr_attach(UART_NUM_0, 5, uart_rx_interrupt_handler, UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);

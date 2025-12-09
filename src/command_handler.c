@@ -7,6 +7,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include <esp-stub-lib/soc_utils.h>
+#include <esp-stub-lib/flash.h>
+#include <esp-stub-lib/err.h>
+#include <esp-stub-lib/uart.h>
+#include <esp-stub-lib/rom_wrappers.h>
 #include "slip.h"
 #include "commands.h"
 #include "command_handler.h"
@@ -21,6 +25,7 @@ struct operation_state {
     uint32_t block_size;
     uint32_t offset;
     uint32_t blocks_written;
+    bool encrypt;
     bool in_progress;
 };
 
@@ -69,7 +74,7 @@ static void s_sync(uint16_t size)
 
 static void s_flash_begin(const uint8_t* buffer, uint16_t size)
 {
-    if (size != FLASH_BEGIN_SIZE) {
+    if (size != FLASH_BEGIN_SIZE && size != FLASH_BEGIN_ENC_SIZE) {
         s_send_error_response(ESP_FLASH_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
@@ -79,7 +84,11 @@ static void s_flash_begin(const uint8_t* buffer, uint16_t size)
     s_flash_state.num_blocks = params[1];
     s_flash_state.block_size = params[2];
     s_flash_state.offset = params[3];
-
+    if (size == FLASH_BEGIN_ENC_SIZE) {
+        s_flash_state.encrypt = params[4];
+    } else {
+        s_flash_state.encrypt = false;
+    }
     s_flash_state.blocks_written = 0;
     s_flash_state.in_progress = true;
 
@@ -113,9 +122,11 @@ static void s_flash_data(const uint8_t* buffer, uint16_t size)
 
     const uint32_t flash_addr = s_flash_state.offset + (seq * s_flash_state.block_size);
 
-    // TODO: Write data to flash using stub_lib_flash_write
-    (void)flash_addr;
-    (void)flash_data;
+    int result = stub_lib_flash_write_buff(flash_addr, flash_data, actual_data_size, s_flash_state.encrypt);
+    if (result != STUB_LIB_OK) {
+        s_send_error_response(ESP_FLASH_DATA, RESPONSE_FAILED_SPI_OP);
+        return;
+    }
 
     ++s_flash_state.blocks_written;
     s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
@@ -285,9 +296,12 @@ static void s_spi_attach(const uint8_t* buffer, uint16_t size)
         s_send_error_response(ESP_SPI_ATTACH, RESPONSE_BAD_DATA_LEN);
         return;
     }
+    const uint32_t* params = (const uint32_t*)buffer;
+    uint32_t ishspi = params[0];
+    bool legacy = params[1];
 
-    (void)buffer;
-    s_send_error_response(ESP_SPI_ATTACH, RESPONSE_CMD_NOT_IMPLEMENTED);
+    stub_lib_flash_attach(ishspi, legacy);
+    s_send_success_response(ESP_SPI_ATTACH, 0, NULL, 0);
 }
 
 static void s_spi_set_params(const uint8_t* buffer, uint16_t size)
@@ -297,8 +311,23 @@ static void s_spi_set_params(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_SPI_SET_PARAMS, RESPONSE_CMD_NOT_IMPLEMENTED);
+    const uint32_t* params = (const uint32_t*)buffer;
+    stub_lib_flash_config_t config = {
+        .flash_id = params[0],
+        .flash_size = params[1],
+        .block_size = params[2],
+        .sector_size = params[3],
+        .page_size = params[4],
+        .status_mask = params[5]
+    };
+
+    int result = stub_lib_flash_update_config(&config);
+    if (result != STUB_LIB_OK) {
+        s_send_error_response(ESP_SPI_SET_PARAMS, RESPONSE_FAILED_SPI_OP);
+        return;
+    }
+
+    s_send_success_response(ESP_SPI_SET_PARAMS, 0, NULL, 0);
 }
 
 static void s_change_baudrate(const uint8_t* buffer, uint16_t size)
@@ -404,15 +433,15 @@ static void s_read_flash(const uint8_t* buffer, uint16_t size)
     s_send_error_response(ESP_READ_FLASH, RESPONSE_CMD_NOT_IMPLEMENTED);
 }
 
-static void s_erase_flash(const uint8_t* buffer, uint16_t size)
+static void s_erase_flash(void)
 {
-    if (size != ERASE_FLASH_SIZE) {
-        s_send_error_response(ESP_ERASE_FLASH, RESPONSE_BAD_DATA_LEN);
+    int result = stub_lib_flash_erase_chip();
+    if (result != STUB_LIB_OK) {
+        s_send_error_response(ESP_ERASE_FLASH, RESPONSE_FAILED_SPI_OP);
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_ERASE_FLASH, RESPONSE_CMD_NOT_IMPLEMENTED);
+    s_send_success_response(ESP_ERASE_FLASH, 0, NULL, 0);
 }
 
 static void s_erase_region(const uint8_t* buffer, uint16_t size)
@@ -422,8 +451,17 @@ static void s_erase_region(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_ERASE_REGION, RESPONSE_CMD_NOT_IMPLEMENTED);
+    const uint32_t* params = (const uint32_t*)buffer;
+    uint32_t addr = params[0];
+    uint32_t erase_size = params[1];
+
+    int result = stub_lib_flash_erase_area(addr, erase_size);
+    if (result != STUB_LIB_OK) {
+        s_send_error_response(ESP_ERASE_REGION, RESPONSE_FAILED_SPI_OP);
+        return;
+    }
+
+    s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
 }
 
 inline uint32_t calculate_checksum(const void* data, uint16_t size)
@@ -565,7 +603,7 @@ void handle_command(const uint8_t *buffer, size_t size)
         break;
 
     case ESP_ERASE_FLASH:
-        s_erase_flash(data, packet_size);
+        s_erase_flash();
         break;
 
     case ESP_ERASE_REGION:
