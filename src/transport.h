@@ -27,12 +27,17 @@ void uart_rx_interrupt_handler();
 /**
  * @brief USB-Serial/JTAG interrupt handler
  */
-void usb_jtag_serial_interrupt_handler();
+void usb_serial_jtag_rx_interrupt_handler();
 
 /**
  * @brief USB-Serial/JTAG transmit one character
  */
 uint8_t usb_serial_jtag_tx_one_char(uint8_t c);
+
+/**
+ * @brief USB-OTG transmit one character
+ */
+uint8_t usb_otg_tx_one_char(uint8_t c);
 
 #ifdef __cplusplus
 }
