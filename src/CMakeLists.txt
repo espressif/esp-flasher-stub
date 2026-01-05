@@ -24,17 +24,3 @@ add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
     COMMAND ${CMAKE_SOURCE_DIR}/tools/elf2json.py ${CMAKE_BINARY_DIR}/src/${TARGET_NAME}${CMAKE_EXECUTABLE_SUFFIX_C} ${CMAKE_BINARY_DIR}/${TARGET_CHIP}.json
     COMMENT "Running elf2json.py to produce a JSON file output"
 )
-
-if(${TARGET_CHIP} STREQUAL "esp8266")
-    # zlib library will be available in esp-stub-lib, so miniz probably won't be needed.
-    add_library(miniz_obj OBJECT miniz.c)
-
-    target_compile_options(miniz_obj PRIVATE
-        # Disable specific warnings that miniz cannot satisfy
-        -Wno-conversion         # Disable implicit conversion warnings
-        -Wno-sign-conversion    # Disable signed/unsigned conversion warnings
-    )
-
-    target_sources(${TARGET_NAME} PRIVATE $<TARGET_OBJECTS:miniz_obj>)
-    message(STATUS "Including miniz with custom safe flags for ${TARGET_CHIP}")
-endif()

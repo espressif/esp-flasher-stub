@@ -18,16 +18,21 @@
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/security.h>
 #include <esp-stub-lib/uart.h>
+#include <esp-stub-lib/miniz.h>
+#include <esp-stub-lib/bit_utils.h>
 
 struct operation_state {
-    uint32_t total_size;
+    uint32_t total_remaining;
     uint32_t num_blocks;
     uint32_t block_size;
     uint32_t offset;
-    uint32_t blocks_written;
+    uint32_t compressed_remaining;
+    tinfl_decompressor decompressor;
     bool encrypt;
     bool in_progress;
 };
+
+#define ADLER32_CHECKSUM_SIZE 4
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
@@ -80,7 +85,7 @@ static void s_flash_begin(const uint8_t* buffer, uint16_t size)
     }
 
     const uint32_t* params = (const uint32_t*)buffer;
-    s_flash_state.total_size = params[0];
+    s_flash_state.total_remaining = params[0];
     s_flash_state.num_blocks = params[1];
     s_flash_state.block_size = params[2];
     s_flash_state.offset = params[3];
@@ -89,10 +94,14 @@ static void s_flash_begin(const uint8_t* buffer, uint16_t size)
     } else {
         s_flash_state.encrypt = false;
     }
-    s_flash_state.blocks_written = 0;
     s_flash_state.in_progress = true;
 
-    // TODO: Do any necessary flash initialization
+    int result = stub_lib_flash_erase_area(s_flash_state.offset, s_flash_state.total_remaining);
+    if (result != STUB_LIB_OK) {
+        s_send_error_response(ESP_FLASH_BEGIN, RESPONSE_FAILED_SPI_OP);
+        return;
+    }
+
     s_send_success_response(ESP_FLASH_BEGIN, 0, NULL, 0);
 }
 
@@ -110,7 +119,6 @@ static void s_flash_data(const uint8_t* buffer, uint16_t size)
 
     const uint32_t* params = (const uint32_t*)buffer;
     uint32_t data_len = params[0];
-    uint32_t seq = params[1];
 
     const uint8_t* flash_data = buffer + FLASH_DATA_HEADER_SIZE;
     const uint16_t actual_data_size = (uint16_t)(size - FLASH_DATA_HEADER_SIZE);
@@ -120,15 +128,16 @@ static void s_flash_data(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    const uint32_t flash_addr = s_flash_state.offset + (seq * s_flash_state.block_size);
+    uint32_t write_data_size = MIN(actual_data_size, s_flash_state.total_remaining);
 
-    int result = stub_lib_flash_write_buff(flash_addr, flash_data, actual_data_size, s_flash_state.encrypt);
+    int result = stub_lib_flash_write_buff(s_flash_state.offset, flash_data, write_data_size, s_flash_state.encrypt);
     if (result != STUB_LIB_OK) {
         s_send_error_response(ESP_FLASH_DATA, RESPONSE_FAILED_SPI_OP);
         return;
     }
 
-    ++s_flash_state.blocks_written;
+    s_flash_state.total_remaining -= write_data_size;
+    s_flash_state.offset += write_data_size;
     s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
 }
 
@@ -144,13 +153,17 @@ static void s_flash_end(const uint8_t* buffer, uint16_t size)
         return;
     }
 
+    if (s_flash_state.total_remaining != 0) {
+        s_send_error_response(ESP_FLASH_END, RESPONSE_BAD_DATA_LEN);
+        return;
+    }
+
     uint32_t flag = *(const uint32_t*)buffer;
 
-    s_flash_state.total_size = 0;
+    s_flash_state.total_remaining = 0;
     s_flash_state.num_blocks = 0;
     s_flash_state.block_size = 0;
     s_flash_state.offset = 0;
-    s_flash_state.blocks_written = 0;
     s_flash_state.in_progress = false;
 
     // TODO: Perform any necessary cleanup
@@ -170,12 +183,11 @@ static void s_mem_begin(const uint8_t* buffer, uint16_t size)
     }
 
     const uint32_t* params = (const uint32_t*)buffer;
-    s_memory_state.total_size = params[0];
+    s_memory_state.total_remaining = params[0];
     s_memory_state.num_blocks = params[1];
     s_memory_state.block_size = params[2];
     s_memory_state.offset = params[3];
 
-    s_memory_state.blocks_written = 0;
     s_memory_state.in_progress = true;
 
     s_send_success_response(ESP_MEM_BEGIN, 0, NULL, 0);
@@ -195,7 +207,11 @@ static void s_mem_data(const uint8_t* buffer, uint16_t size)
 
     const uint32_t* params = (const uint32_t*)buffer;
     uint32_t data_len = params[0];
-    uint32_t seq = params[1];
+
+    if (s_memory_state.total_remaining < data_len) {
+        s_send_error_response(ESP_MEM_DATA, RESPONSE_TOO_MUCH_DATA);
+        return;
+    }
 
     const uint8_t* mem_data = buffer + MEM_DATA_HEADER_SIZE;
     const uint16_t actual_data_size = (uint16_t)(size - MEM_DATA_HEADER_SIZE);
@@ -205,11 +221,10 @@ static void s_mem_data(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    uint32_t mem_addr = s_memory_state.offset + (seq * s_memory_state.block_size);
+    memcpy((void*)s_memory_state.offset, mem_data, actual_data_size);
+    s_memory_state.offset += actual_data_size;
+    s_memory_state.total_remaining -= actual_data_size;
 
-    memcpy((void*)mem_addr, mem_data, actual_data_size);
-
-    ++s_memory_state.blocks_written;
     s_send_success_response(ESP_MEM_DATA, 0, NULL, 0);
 }
 
@@ -229,11 +244,10 @@ static void s_mem_end(const uint8_t* buffer, uint16_t size)
     uint32_t flag = params[0];
     uint32_t entrypoint = params[1];
 
-    s_memory_state.total_size = 0;
+    s_memory_state.total_remaining = 0;
     s_memory_state.num_blocks = 0;
     s_memory_state.block_size = 0;
     s_memory_state.offset = 0;
-    s_memory_state.blocks_written = 0;
     s_memory_state.in_progress = false;
 
     s_send_success_response(ESP_MEM_END, 0, NULL, 0);
@@ -346,38 +360,122 @@ static void s_change_baudrate(const uint8_t* buffer, uint16_t size)
 
 static void s_flash_defl_begin(const uint8_t* buffer, uint16_t size)
 {
-    const uint8_t expected_size = sizeof(uint32_t);
-    if (size != expected_size) {
+    if (size != FLASH_DEFL_BEGIN_SIZE && size != FLASH_DEFL_BEGIN_ENC_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_CMD_NOT_IMPLEMENTED);
+    const uint32_t* params = (const uint32_t*)buffer;
+    s_flash_state.total_remaining = params[0] + ADLER32_CHECKSUM_SIZE;
+    s_flash_state.num_blocks = params[1];
+    s_flash_state.block_size = params[2];
+    s_flash_state.offset = params[3];
+    s_flash_state.compressed_remaining = s_flash_state.num_blocks * s_flash_state.block_size;
+    if (size == FLASH_DEFL_BEGIN_ENC_SIZE) {
+        s_flash_state.encrypt = params[4];
+    } else {
+        s_flash_state.encrypt = false;
+    }
+    s_flash_state.in_progress = true;
+    tinfl_init(&s_flash_state.decompressor);
+
+    int result = stub_lib_flash_erase_area(s_flash_state.offset, s_flash_state.total_remaining);
+    if (result != STUB_LIB_OK) {
+        s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_FAILED_SPI_OP);
+        return;
+    }
+
+    s_send_success_response(ESP_FLASH_DEFL_BEGIN, 0, NULL, 0);
 }
 
 static void s_flash_defl_data(const uint8_t* buffer, uint16_t size)
 {
-    const uint8_t expected_size = 4 * sizeof(uint32_t);
-    if (size < expected_size) {
+    if (size < FLASH_DEFL_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_CMD_NOT_IMPLEMENTED);
+    if (!s_flash_state.in_progress) {
+        s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_NOT_IN_FLASH_MODE);
+        return;
+    }
+
+    // When TINFL_LZ_DICT_SIZE buffer size is used, wrapping is handled by miniz library.
+    static uint8_t decompressed_data[TINFL_LZ_DICT_SIZE];
+    static uint8_t *decompressed_data_ptr = decompressed_data;
+
+    const uint8_t* compressed_data = buffer + FLASH_DEFL_DATA_HEADER_SIZE;
+    const uint32_t* params = (const uint32_t*)buffer;
+    uint32_t data_size = params[0];
+    uint32_t seq = params[1];
+    size_t compressed_remaining = data_size;
+
+    // Parse zlib header only on the first data call (when no blocks have been written yet)
+    mz_uint32 flags = (seq == 0) ? TINFL_FLAG_PARSE_ZLIB_HEADER : 0;
+
+    tinfl_status status = TINFL_STATUS_NEEDS_MORE_INPUT;
+
+    while (status > TINFL_STATUS_DONE && compressed_remaining > 0) {
+        size_t in_bytes = compressed_remaining;
+        size_t out_bytes = sizeof(decompressed_data) - (size_t)(decompressed_data_ptr - decompressed_data);
+        if (s_flash_state.compressed_remaining > compressed_remaining) {
+            flags |= TINFL_FLAG_HAS_MORE_INPUT;
+        }
+        status = tinfl_decompress(&s_flash_state.decompressor,
+                                  compressed_data + data_size - compressed_remaining,
+                                  &in_bytes,
+                                  decompressed_data,
+                                  decompressed_data_ptr,
+                                  &out_bytes,
+                                  flags);
+        compressed_remaining -= in_bytes;
+        decompressed_data_ptr += out_bytes;
+        s_flash_state.compressed_remaining -= in_bytes;
+        flags = 0;
+
+        if (status == TINFL_STATUS_DONE || decompressed_data_ptr >= decompressed_data + sizeof(decompressed_data)) {
+            int result = stub_lib_flash_write_buff(s_flash_state.offset, decompressed_data, (uint16_t)(decompressed_data_ptr - decompressed_data), s_flash_state.encrypt);
+            if (result != STUB_LIB_OK) {
+                s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
+                return;
+            }
+            s_flash_state.offset += (uint16_t)(decompressed_data_ptr - decompressed_data);
+            s_flash_state.total_remaining -= (uint16_t)(decompressed_data_ptr - decompressed_data);
+            decompressed_data_ptr = decompressed_data;
+        }
+    }
+    s_send_success_response(ESP_FLASH_DEFL_DATA, 0, NULL, 0);
 }
 
 static void s_flash_defl_end(const uint8_t* buffer, uint16_t size)
 {
-    const uint8_t expected_size = sizeof(uint32_t);
-    if (size != expected_size) {
+    if (size != FLASH_DEFL_END_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_CMD_NOT_IMPLEMENTED);
+    if (!s_flash_state.in_progress) {
+        s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_NOT_IN_FLASH_MODE);
+        return;
+    }
+
+    if (s_flash_state.total_remaining != ADLER32_CHECKSUM_SIZE) {
+        s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_BAD_DATA_LEN);
+        return;
+    }
+    s_flash_state.total_remaining = 0;
+    s_flash_state.num_blocks = 0;
+    s_flash_state.block_size = 0;
+    s_flash_state.offset = 0;
+    s_flash_state.compressed_remaining = 0;
+    s_flash_state.in_progress = false;
+
+    uint32_t reboot = *(const uint32_t*)buffer;
+    if (reboot != 0) {
+        // TODO: Implement reboot
+    }
+
+    s_send_success_response(ESP_FLASH_DEFL_END, 0, NULL, 0);
 }
 
 static void s_spi_flash_md5(const uint8_t* buffer, uint16_t size)

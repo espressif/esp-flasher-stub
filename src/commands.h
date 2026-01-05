@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
@@ -61,27 +61,28 @@ typedef enum {
  * @brief ESP command expected data sizes (in bytes)
  * Used for parameter validation in command handlers
  */
-#define SYNC_SIZE               36
-#define FLASH_BEGIN_SIZE        16
-#define FLASH_BEGIN_ENC_SIZE    20
-#define FLASH_DATA_HEADER_SIZE  16
-#define FLASH_END_SIZE          4
-#define MEM_BEGIN_SIZE          16
-#define MEM_DATA_HEADER_SIZE    16
-#define MEM_END_SIZE            8
-#define WRITE_REG_ENTRY_SIZE    16
-#define READ_REG_SIZE           4
-#define SPI_ATTACH_SIZE         4
-#define SPI_SET_PARAMS_SIZE     24
-#define CHANGE_BAUDRATE_SIZE    8
-#define FLASH_DEFL_BEGIN_SIZE   4
-#define FLASH_DEFL_DATA_SIZE    16
-#define FLASH_DEFL_END_SIZE     4
-#define SPI_FLASH_MD5_SIZE      16
-#define GET_SECURITY_INFO_SIZE  0
-#define READ_FLASH_SIZE         16
-#define ERASE_FLASH_SIZE        0
-#define ERASE_REGION_SIZE       8
+#define SYNC_SIZE                   36
+#define FLASH_BEGIN_SIZE            16
+#define FLASH_BEGIN_ENC_SIZE        20
+#define FLASH_DATA_HEADER_SIZE      16
+#define FLASH_END_SIZE              4
+#define MEM_BEGIN_SIZE              16
+#define MEM_DATA_HEADER_SIZE        16
+#define MEM_END_SIZE                8
+#define WRITE_REG_ENTRY_SIZE        16
+#define READ_REG_SIZE               4
+#define SPI_ATTACH_SIZE             4
+#define SPI_SET_PARAMS_SIZE         24
+#define CHANGE_BAUDRATE_SIZE        8
+#define FLASH_DEFL_BEGIN_SIZE       16
+#define FLASH_DEFL_BEGIN_ENC_SIZE   20
+#define FLASH_DEFL_DATA_HEADER_SIZE 16
+#define FLASH_DEFL_END_SIZE         4
+#define SPI_FLASH_MD5_SIZE          16
+#define GET_SECURITY_INFO_SIZE      0
+#define READ_FLASH_SIZE             16
+#define ERASE_FLASH_SIZE            0
+#define ERASE_REGION_SIZE           8
 
 #ifdef __cplusplus
 }
