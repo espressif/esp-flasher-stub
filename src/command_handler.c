@@ -456,14 +456,74 @@ static void s_get_security_info(uint16_t size)
 
 static void s_read_flash(const uint8_t* buffer, uint16_t size)
 {
-    const uint8_t expected_size = 4 * sizeof(uint32_t);
-    if (size != expected_size) {
+    if (size != READ_FLASH_SIZE) {
         s_send_error_response(ESP_READ_FLASH, RESPONSE_BAD_DATA_LEN);
         return;
     }
+    // Reset slip receive state to avoid reading READ_FLASH command again
+    slip_recv_reset();
 
-    (void)buffer;
-    s_send_error_response(ESP_READ_FLASH, RESPONSE_CMD_NOT_IMPLEMENTED);
+    const uint32_t* params = (const uint32_t*)buffer;
+    uint32_t offset = params[0];
+    uint32_t read_size = params[1];
+    uint32_t packet_size = params[2];
+    uint32_t max_unacked_packets = params[3];
+
+    static uint8_t data[4102] __attribute__((aligned(4)));
+    uint32_t read_size_remaining = read_size;
+    uint32_t sent_packets = 0;
+    uint32_t acked_data_size = 0;
+    uint32_t acked_packets = 0;
+
+    // Check if the buffer size (including potential alignment requirements - 6 bytes) is large enough to hold the packet size
+    if (packet_size > sizeof(data) - 6) {
+        s_send_error_response(ESP_READ_FLASH, RESPONSE_BAD_DATA_LEN);
+        return;
+    }
+    s_send_success_response(ESP_READ_FLASH, 0, NULL, 0);
+
+    struct stub_lib_md5_ctx ctx;
+    stub_lib_md5_init(&ctx);
+
+    while (read_size_remaining > 0 || acked_data_size < read_size) {
+        // Check if packet acknowledgement from a host arrived
+        if (slip_is_frame_complete()) {
+            size_t slip_size;
+            const uint8_t *slip_data = slip_get_frame_data(&slip_size);
+            if (slip_size != sizeof(acked_data_size)) {
+                break;
+            }
+            memcpy(&acked_data_size, slip_data, sizeof(acked_data_size));
+            acked_packets++;
+            slip_recv_reset();
+        }
+
+        // If not all data was read and max in-flight packets was not reached, read more data
+        if (read_size_remaining > 0 && sent_packets - acked_packets < max_unacked_packets) {
+            size_t actual_read_size = MIN(read_size_remaining, packet_size);
+
+            // Align offset and size to 4-byte boundaries for flash read
+            uint32_t align_offset = offset & 3U;
+            uint32_t aligned_offset = offset - align_offset;
+            uint32_t aligned_size = (actual_read_size + align_offset + 3U) & ~3U;
+
+            if (stub_lib_flash_read_buff(aligned_offset, data, aligned_size) != STUB_LIB_OK) {
+                s_send_error_response(ESP_READ_FLASH, RESPONSE_FAILED_SPI_OP);
+                return;
+            }
+
+            // Use the data starting from the alignment offset
+            uint8_t *actual_data = data + align_offset;
+            stub_lib_md5_update(&ctx, actual_data, actual_read_size);
+            slip_send_frame(actual_data, actual_read_size);
+            offset += actual_read_size;
+            read_size_remaining -= actual_read_size;
+            sent_packets++;
+        }
+    }
+    uint8_t md5[16];
+    stub_lib_md5_final(&ctx, md5);
+    slip_send_frame(md5, sizeof(md5));
 }
 
 static void s_erase_flash(void)
