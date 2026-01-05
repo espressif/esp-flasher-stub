@@ -8,6 +8,7 @@
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/usb_serial_jtag.h>
 #include <esp-stub-lib/usb_otg.h>
+#include <esp-stub-lib/clock.h>
 #include "transport.h"
 #include "slip.h"
 
@@ -78,6 +79,7 @@ void stub_transport_init(void)
 
     // USB-Serial/JTAG
     if (stub_lib_usb_serial_jtag_is_active()) {
+        stub_lib_clock_disable_watchdogs();
         stub_lib_usb_serial_jtag_rominit_intr_attach(USB_INTERRUPT_SOURCE, usb_serial_jtag_rx_interrupt_handler, USB_SERIAL_JTAG_OUT_RECV_PKT_INT_ENA);
         slip_set_tx_fn(usb_serial_jtag_tx_one_char);
         return;
