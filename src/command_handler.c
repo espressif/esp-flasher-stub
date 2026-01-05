@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
@@ -379,14 +379,47 @@ static void s_flash_defl_end(const uint8_t* buffer, uint16_t size)
 
 static void s_spi_flash_md5(const uint8_t* buffer, uint16_t size)
 {
-    const uint8_t expected_size = 4 * sizeof(uint32_t);
-    if (size != expected_size) {
+    if (size != SPI_FLASH_MD5_SIZE) {
         s_send_error_response(ESP_SPI_FLASH_MD5, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_SPI_FLASH_MD5, RESPONSE_CMD_NOT_IMPLEMENTED);
+    const uint32_t* params = (const uint32_t*)buffer;
+    uint32_t addr = params[0];
+    uint32_t read_size = params[1];
+
+    uint8_t data[4096] __attribute__((aligned(4)));
+    uint8_t md5[16];
+
+    // Flash address and size needs to be aligned to 4 bytes because of the flash read function.
+    // Calculate alignment offset to skip the unaligned bytes.
+    uint32_t offset = addr & 3U;
+    uint32_t aligned_addr = addr - offset;
+    uint32_t remaining = read_size;
+
+    struct stub_lib_md5_ctx ctx;
+    stub_lib_md5_init(&ctx);
+
+    while (remaining > 0) {
+        uint32_t chunk_size = MIN(remaining + offset, sizeof(data));
+        uint32_t aligned_chunk_size = (chunk_size + 3U) & ~3U;
+
+        if (stub_lib_flash_read_buff(aligned_addr, data, aligned_chunk_size) != STUB_LIB_OK) {
+            s_send_error_response(ESP_SPI_FLASH_MD5, RESPONSE_FAILED_SPI_OP);
+            return;
+        }
+
+        // Update MD5 with only the requested bytes (skip offset on first iteration)
+        uint32_t bytes_to_hash = MIN(remaining, aligned_chunk_size - offset);
+        stub_lib_md5_update(&ctx, data + offset, bytes_to_hash);
+
+        aligned_addr += aligned_chunk_size;
+        remaining -= bytes_to_hash;
+        offset = 0;  // Only apply offset on first chunk
+    }
+
+    stub_lib_md5_final(&ctx, md5);
+    s_send_success_response(ESP_SPI_FLASH_MD5, 0, md5, sizeof(md5));
 }
 
 static void s_get_security_info(uint16_t size)
