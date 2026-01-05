@@ -337,8 +337,11 @@ static void s_change_baudrate(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    (void)buffer;
-    s_send_error_response(ESP_CHANGE_BAUDRATE, RESPONSE_CMD_NOT_IMPLEMENTED);
+    const uint32_t* params = (const uint32_t*)buffer;
+    uint32_t new_baudrate = params[0];
+
+    s_send_success_response(ESP_CHANGE_BAUDRATE, 0, NULL, 0);
+    stub_lib_uart_rominit_set_baudrate(UART_NUM_0, new_baudrate);
 }
 
 static void s_flash_defl_begin(const uint8_t* buffer, uint16_t size)
