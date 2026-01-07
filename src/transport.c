@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
@@ -8,6 +8,8 @@
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/usb_serial_jtag.h>
 #include <esp-stub-lib/usb_otg.h>
+#include <esp-stub-lib/clock.h>
+#include <esp-stub-lib/rom_wrappers.h>
 #include "transport.h"
 #include "slip.h"
 
@@ -78,13 +80,16 @@ void stub_transport_init(void)
 
     // USB-Serial/JTAG
     if (stub_lib_usb_serial_jtag_is_active()) {
+        stub_lib_clock_disable_watchdogs();
         stub_lib_usb_serial_jtag_rominit_intr_attach(USB_INTERRUPT_SOURCE, usb_serial_jtag_rx_interrupt_handler, USB_SERIAL_JTAG_OUT_RECV_PKT_INT_ENA);
         slip_set_tx_fn(usb_serial_jtag_tx_one_char);
         return;
     }
 
     // UART (if no USB transport is being used)
-    stub_lib_uart_wait_idle(UART_NUM_0); // Wait until ROM sends response to last command
+    // Wait for 10ms to ensure ROM has sent response to last command
+    stub_lib_delay_us(10 * 1000);
+    stub_lib_uart_wait_idle(UART_NUM_0);
     stub_lib_uart_rominit_intr_attach(UART_NUM_0, UART_INTERRUPT_SOURCE, uart_rx_interrupt_handler, UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
     slip_set_tx_fn(stub_lib_uart_tx_one_char);
 }

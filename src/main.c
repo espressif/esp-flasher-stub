@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <esp-stub-lib/flash.h>
+#include <esp-stub-lib/clock.h>
+#include <esp-stub-lib/usb_serial_jtag.h>
 #include "command_handler.h"
 #include "slip.h"
 #include "transport.h"
@@ -30,6 +32,13 @@ void esp_main(void)
     /* Zero BSS section */
     for (uint32_t *p = &_bss_start; p < &_bss_end; p++) {
         *p = 0;
+    }
+
+    // stub_lib_clock_init() increases CPU frequency which benefits both USB and UART transfers.
+    // Currently only enabled for USB-Serial/JTAG due to concerns about instability (observed on ESP32-S3),
+    // because DBIAS voltage not being set. This needs investigation and potentially enabling for all transport types.
+    if (stub_lib_usb_serial_jtag_is_active()) {
+        stub_lib_clock_init();
     }
 
     void *flash_state = NULL;

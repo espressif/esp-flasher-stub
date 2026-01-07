@@ -65,6 +65,14 @@ function(add_host_test TEST_NAME)
         ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.c
     )
 
+    # Disable -Warray-parameter for auto-generated mock files
+    # because stub_lib_md5_final(struct stub_lib_md5_ctx *ctx, uint8_t digest[16])
+    # is generated as stub_lib_md5_final(struct stub_lib_md5_ctx *ctx, uint8_t *digest);
+    set_source_files_properties(
+        ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.c
+        PROPERTIES COMPILE_FLAGS "-Wno-array-parameter"
+    )
+
     # Depend on mock generation
     add_dependencies(${TEST_NAME} generate_mocks)
 
