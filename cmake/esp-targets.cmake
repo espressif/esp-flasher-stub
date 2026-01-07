@@ -7,6 +7,62 @@ set(XTENSA_TARGETS esp32 esp32s2 esp32s3)
 set(RISCV_TARGETS esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32h2 esp32h21 esp32h4 esp32p4)
 set(ALL_ESP_TARGETS ${ESP8266_TARGET} ${XTENSA_TARGETS} ${RISCV_TARGETS})
 
+# =============================================================================
+# Compiler and Linker Flags
+# =============================================================================
+
+# Common compiler flags for all targets
+set(COMMON_COMPILER_FLAGS
+    -Wall
+    -Werror
+    -Wextra
+    -Wshadow
+    -Wundef
+    -Wconversion
+    -Os
+    -nostdlib
+    -fno-builtin
+    -fno-common
+    -ffunction-sections
+    -std=gnu17
+)
+
+# Xtensa-specific compiler flags (ESP32, ESP32-S2, ESP32-S3)
+set(XTENSA_COMPILER_FLAGS
+    ${COMMON_COMPILER_FLAGS}
+    -DXTENSA
+    -mlongcalls
+    -mtext-section-literals
+)
+
+# ESP8266-specific compiler flags
+set(ESP8266_COMPILER_FLAGS
+    ${COMMON_COMPILER_FLAGS}
+    -DESP8266
+    -mlongcalls
+    -mtext-section-literals
+)
+
+# RISC-V specific compiler flags
+set(RISCV_COMPILER_FLAGS
+    ${COMMON_COMPILER_FLAGS}
+    -DRISCV
+    -march=rv32imc
+    -mabi=ilp32
+    -msmall-data-limit=0
+)
+
+# Common linker flags for all targets
+set(COMMON_LINKER_FLAGS
+    "-nostdlib"
+    "-Wl,-static"
+    "-Wl,--gc-sections"
+)
+
+# =============================================================================
+# Functions
+# =============================================================================
+
 # Function to validate ESP target
 function(validate_esp_target TARGET_CHIP)
     if(NOT TARGET_CHIP IN_LIST ALL_ESP_TARGETS)
@@ -27,20 +83,18 @@ function(get_esp_toolchain_prefix TARGET_CHIP OUTPUT_VAR)
     endif()
 endfunction()
 
-# Function to get target-specific compile flags
-function(get_esp_target_flags TARGET_CHIP OUTPUT_VAR)
+# Function to get all compiler flags for target
+function(get_compiler_flags_for_target TARGET_CHIP OUTPUT_VAR)
     validate_esp_target(${TARGET_CHIP})
 
-    # Architecture-specific flags
-    set(EXTRA_RISCV_FLAGS -march=rv32imc -mabi=ilp32 -msmall-data-limit=0)
-    set(EXTRA_XTENSA_FLAGS -mtext-section-literals -mlongcalls)
-
-    if(TARGET_CHIP IN_LIST XTENSA_TARGETS)
-        set(${OUTPUT_VAR} "-DXTENSA" ${EXTRA_XTENSA_FLAGS} PARENT_SCOPE)
-    elseif(TARGET_CHIP STREQUAL "esp8266")
-        set(${OUTPUT_VAR} "-DESP8266" ${EXTRA_XTENSA_FLAGS} PARENT_SCOPE)
+    if(TARGET_CHIP STREQUAL "esp8266")
+        set(${OUTPUT_VAR} ${ESP8266_COMPILER_FLAGS} PARENT_SCOPE)
+    elseif(TARGET_CHIP IN_LIST XTENSA_TARGETS)
+        set(${OUTPUT_VAR} ${XTENSA_COMPILER_FLAGS} PARENT_SCOPE)
+    elseif(TARGET_CHIP IN_LIST RISCV_TARGETS)
+        set(${OUTPUT_VAR} ${RISCV_COMPILER_FLAGS} PARENT_SCOPE)
     else()
-        set(${OUTPUT_VAR} "-DRISCV" ${EXTRA_RISCV_FLAGS} PARENT_SCOPE)
+        message(FATAL_ERROR "Unknown target chip: ${TARGET_CHIP}")
     endif()
 endfunction()
 

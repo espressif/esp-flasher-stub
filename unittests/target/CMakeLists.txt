@@ -19,7 +19,7 @@ configure_esp_toolchain(${ESP_TARGET})
 project(esp-flasher-stub-target-tests C)
 
 # Configure ESP test build
-get_esp_target_flags(${ESP_TARGET} TARGET_FLAGS)
+get_compiler_flags_for_target(${ESP_TARGET} TARGET_COMPILER_FLAGS)
 
 # Test build flags (more debug-friendly than firmware, allows libc)
 set(ESP_TEST_C_FLAGS
@@ -34,8 +34,8 @@ set(ESP_TEST_LINKER_FLAGS
 )
 
 # Apply test build configuration
-add_compile_options(${ESP_TEST_C_FLAGS} ${TARGET_FLAGS})
-add_link_options(${ESP_TEST_LINKER_FLAGS} ${TARGET_FLAGS})
+add_compile_options(${ESP_TEST_C_FLAGS} ${TARGET_COMPILER_FLAGS})
+add_link_options(${ESP_TEST_LINKER_FLAGS})
 
 # Check for Python and esptool module
 find_program(PYTHON3 python3)
