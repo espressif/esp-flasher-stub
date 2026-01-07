@@ -1,6 +1,6 @@
 MEMORY {
-  iram : org = 0x4FF50000, len = 0x10000
-  dram : org = 0x4FF60000, len = 0x20000
+  iram : org = 0x4FF10000, len = 0x4000
+  dram : org = 0x4FF50000, len = 0x18000
 }
 
 ENTRY(esp_main)
