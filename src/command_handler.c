@@ -44,7 +44,7 @@ struct operation_state {
 static struct operation_state s_flash_state = {0};
 static struct operation_state s_memory_state = {0};
 
-static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size,
+static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,
                                    esp_response_code_t response);
 
 static inline void s_send_error_response(uint8_t command, esp_response_code_t response)
@@ -52,7 +52,7 @@ static inline void s_send_error_response(uint8_t command, esp_response_code_t re
     s_send_response_packet(command, 0, NULL, 0, response);
 }
 
-static inline void s_send_success_response(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size)
+static inline void s_send_success_response(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size)
 {
     s_send_response_packet(command, value, data, data_size, RESPONSE_SUCCESS);
 }
@@ -77,14 +77,14 @@ static void s_sync(uint16_t size)
     }
 }
 
-static void s_flash_begin(const uint8_t* buffer, uint16_t size)
+static void s_flash_begin(const uint8_t *buffer, uint16_t size)
 {
     if (size != FLASH_BEGIN_SIZE && size != FLASH_BEGIN_ENC_SIZE) {
         s_send_error_response(ESP_FLASH_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     s_flash_state.total_remaining = params[0];
     s_flash_state.num_blocks = params[1];
     s_flash_state.block_size = params[2];
@@ -105,7 +105,7 @@ static void s_flash_begin(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_BEGIN, 0, NULL, 0);
 }
 
-static void s_flash_data(const uint8_t* buffer, uint16_t size)
+static void s_flash_data(const uint8_t *buffer, uint16_t size)
 {
     if (size < FLASH_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DATA, RESPONSE_NOT_ENOUGH_DATA);
@@ -117,10 +117,10 @@ static void s_flash_data(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t data_len = params[0];
 
-    const uint8_t* flash_data = buffer + FLASH_DATA_HEADER_SIZE;
+    const uint8_t *flash_data = buffer + FLASH_DATA_HEADER_SIZE;
     const uint16_t actual_data_size = (uint16_t)(size - FLASH_DATA_HEADER_SIZE);
 
     if (data_len != actual_data_size) {
@@ -141,7 +141,7 @@ static void s_flash_data(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
 }
 
-static void s_flash_end(const uint8_t* buffer, uint16_t size)
+static void s_flash_end(const uint8_t *buffer, uint16_t size)
 {
     if (size != FLASH_END_SIZE) {
         s_send_error_response(ESP_FLASH_END, RESPONSE_BAD_DATA_LEN);
@@ -158,7 +158,7 @@ static void s_flash_end(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    uint32_t flag = *(const uint32_t*)buffer;
+    uint32_t flag = *(const uint32_t *)buffer;
 
     s_flash_state.total_remaining = 0;
     s_flash_state.num_blocks = 0;
@@ -175,14 +175,14 @@ static void s_flash_end(const uint8_t* buffer, uint16_t size)
     }
 }
 
-static void s_mem_begin(const uint8_t* buffer, uint16_t size)
+static void s_mem_begin(const uint8_t *buffer, uint16_t size)
 {
     if (size != MEM_BEGIN_SIZE) {
         s_send_error_response(ESP_MEM_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     s_memory_state.total_remaining = params[0];
     s_memory_state.num_blocks = params[1];
     s_memory_state.block_size = params[2];
@@ -193,7 +193,7 @@ static void s_mem_begin(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_MEM_BEGIN, 0, NULL, 0);
 }
 
-static void s_mem_data(const uint8_t* buffer, uint16_t size)
+static void s_mem_data(const uint8_t *buffer, uint16_t size)
 {
     if (size < MEM_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_MEM_DATA, RESPONSE_NOT_ENOUGH_DATA);
@@ -205,7 +205,7 @@ static void s_mem_data(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t data_len = params[0];
 
     if (s_memory_state.total_remaining < data_len) {
@@ -213,7 +213,7 @@ static void s_mem_data(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    const uint8_t* mem_data = buffer + MEM_DATA_HEADER_SIZE;
+    const uint8_t *mem_data = buffer + MEM_DATA_HEADER_SIZE;
     const uint16_t actual_data_size = (uint16_t)(size - MEM_DATA_HEADER_SIZE);
 
     if (data_len != actual_data_size) {
@@ -221,14 +221,14 @@ static void s_mem_data(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    memcpy((void*)s_memory_state.offset, mem_data, actual_data_size);
+    memcpy((void *)s_memory_state.offset, mem_data, actual_data_size);
     s_memory_state.offset += actual_data_size;
     s_memory_state.total_remaining -= actual_data_size;
 
     s_send_success_response(ESP_MEM_DATA, 0, NULL, 0);
 }
 
-static void s_mem_end(const uint8_t* buffer, uint16_t size)
+static void s_mem_end(const uint8_t *buffer, uint16_t size)
 {
     if (size != MEM_END_SIZE) {
         s_send_error_response(ESP_MEM_END, RESPONSE_BAD_DATA_LEN);
@@ -240,7 +240,7 @@ static void s_mem_end(const uint8_t* buffer, uint16_t size)
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t flag = params[0];
     uint32_t entrypoint = params[1];
 
@@ -263,7 +263,7 @@ static void s_mem_end(const uint8_t* buffer, uint16_t size)
     }
 }
 
-static void s_write_reg(const uint8_t* buffer, uint16_t size)
+static void s_write_reg(const uint8_t *buffer, uint16_t size)
 {
     if (size == 0 || size % WRITE_REG_ENTRY_SIZE != 0) {
         s_send_error_response(ESP_WRITE_REG, RESPONSE_NOT_ENOUGH_DATA);
@@ -273,7 +273,7 @@ static void s_write_reg(const uint8_t* buffer, uint16_t size)
     const uint16_t command_count = (uint16_t)(size / WRITE_REG_ENTRY_SIZE);
 
     for (uint16_t i = 0; i < command_count; i++) {
-        const uint32_t* reg_params = (const uint32_t*)(buffer + (i * WRITE_REG_ENTRY_SIZE));
+        const uint32_t *reg_params = (const uint32_t *)(buffer + (i * WRITE_REG_ENTRY_SIZE));
 
         uint32_t addr = reg_params[0];
         uint32_t value = reg_params[1];
@@ -292,25 +292,25 @@ static void s_write_reg(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_WRITE_REG, 0, NULL, 0);
 }
 
-static void s_read_reg(const uint8_t* buffer, uint16_t size)
+static void s_read_reg(const uint8_t *buffer, uint16_t size)
 {
     if (size != READ_REG_SIZE) {
         s_send_error_response(ESP_READ_REG, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    uint32_t addr = *(const uint32_t*)buffer;
+    uint32_t addr = *(const uint32_t *)buffer;
     const uint32_t value = REG_READ(addr);
     s_send_success_response(ESP_READ_REG, value, NULL, 0);
 }
 
-static void s_spi_attach(const uint8_t* buffer, uint16_t size)
+static void s_spi_attach(const uint8_t *buffer, uint16_t size)
 {
     if (size != SPI_ATTACH_SIZE) {
         s_send_error_response(ESP_SPI_ATTACH, RESPONSE_BAD_DATA_LEN);
         return;
     }
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t ishspi = params[0];
     bool legacy = params[1];
 
@@ -318,14 +318,14 @@ static void s_spi_attach(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_SPI_ATTACH, 0, NULL, 0);
 }
 
-static void s_spi_set_params(const uint8_t* buffer, uint16_t size)
+static void s_spi_set_params(const uint8_t *buffer, uint16_t size)
 {
     if (size != SPI_SET_PARAMS_SIZE) {
         s_send_error_response(ESP_SPI_SET_PARAMS, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     stub_lib_flash_config_t config = {
         .flash_id = params[0],
         .flash_size = params[1],
@@ -344,28 +344,28 @@ static void s_spi_set_params(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_SPI_SET_PARAMS, 0, NULL, 0);
 }
 
-static void s_change_baudrate(const uint8_t* buffer, uint16_t size)
+static void s_change_baudrate(const uint8_t *buffer, uint16_t size)
 {
     if (size != CHANGE_BAUDRATE_SIZE) {
         s_send_error_response(ESP_CHANGE_BAUDRATE, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t new_baudrate = params[0];
 
     s_send_success_response(ESP_CHANGE_BAUDRATE, 0, NULL, 0);
     stub_lib_uart_rominit_set_baudrate(UART_NUM_0, new_baudrate);
 }
 
-static void s_flash_defl_begin(const uint8_t* buffer, uint16_t size)
+static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
 {
     if (size != FLASH_DEFL_BEGIN_SIZE && size != FLASH_DEFL_BEGIN_ENC_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     s_flash_state.total_remaining = params[0] + ADLER32_CHECKSUM_SIZE;
     s_flash_state.num_blocks = params[1];
     s_flash_state.block_size = params[2];
@@ -388,7 +388,7 @@ static void s_flash_defl_begin(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_DEFL_BEGIN, 0, NULL, 0);
 }
 
-static void s_flash_defl_data(const uint8_t* buffer, uint16_t size)
+static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
 {
     if (size < FLASH_DEFL_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_LEN);
@@ -404,8 +404,8 @@ static void s_flash_defl_data(const uint8_t* buffer, uint16_t size)
     static uint8_t decompressed_data[TINFL_LZ_DICT_SIZE];
     static uint8_t *decompressed_data_ptr = decompressed_data;
 
-    const uint8_t* compressed_data = buffer + FLASH_DEFL_DATA_HEADER_SIZE;
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint8_t *compressed_data = buffer + FLASH_DEFL_DATA_HEADER_SIZE;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t data_size = params[0];
     uint32_t seq = params[1];
     size_t compressed_remaining = data_size;
@@ -434,7 +434,8 @@ static void s_flash_defl_data(const uint8_t* buffer, uint16_t size)
         flags = 0;
 
         if (status == TINFL_STATUS_DONE || decompressed_data_ptr >= decompressed_data + sizeof(decompressed_data)) {
-            int result = stub_lib_flash_write_buff(s_flash_state.offset, decompressed_data, (uint16_t)(decompressed_data_ptr - decompressed_data), s_flash_state.encrypt);
+            int result = stub_lib_flash_write_buff(s_flash_state.offset, decompressed_data,
+                                                   (uint16_t)(decompressed_data_ptr - decompressed_data), s_flash_state.encrypt);
             if (result != STUB_LIB_OK) {
                 s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
                 return;
@@ -447,7 +448,7 @@ static void s_flash_defl_data(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_DEFL_DATA, 0, NULL, 0);
 }
 
-static void s_flash_defl_end(const uint8_t* buffer, uint16_t size)
+static void s_flash_defl_end(const uint8_t *buffer, uint16_t size)
 {
     if (size != FLASH_DEFL_END_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_BAD_DATA_LEN);
@@ -470,7 +471,7 @@ static void s_flash_defl_end(const uint8_t* buffer, uint16_t size)
     s_flash_state.compressed_remaining = 0;
     s_flash_state.in_progress = false;
 
-    uint32_t reboot = *(const uint32_t*)buffer;
+    uint32_t reboot = *(const uint32_t *)buffer;
     if (reboot != 0) {
         // TODO: Implement reboot
     }
@@ -478,14 +479,14 @@ static void s_flash_defl_end(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_DEFL_END, 0, NULL, 0);
 }
 
-static void s_spi_flash_md5(const uint8_t* buffer, uint16_t size)
+static void s_spi_flash_md5(const uint8_t *buffer, uint16_t size)
 {
     if (size != SPI_FLASH_MD5_SIZE) {
         s_send_error_response(ESP_SPI_FLASH_MD5, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t addr = params[0];
     uint32_t read_size = params[1];
 
@@ -555,7 +556,7 @@ static void s_get_security_info(uint16_t size)
     }
 }
 
-static void s_read_flash(const uint8_t* buffer, uint16_t size)
+static void s_read_flash(const uint8_t *buffer, uint16_t size)
 {
     if (size != READ_FLASH_SIZE) {
         s_send_error_response(ESP_READ_FLASH, RESPONSE_BAD_DATA_LEN);
@@ -564,7 +565,7 @@ static void s_read_flash(const uint8_t* buffer, uint16_t size)
     // Reset slip receive state to avoid reading READ_FLASH command again
     slip_recv_reset();
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t offset = params[0];
     uint32_t read_size = params[1];
     uint32_t packet_size = params[2];
@@ -638,14 +639,14 @@ static void s_erase_flash(void)
     s_send_success_response(ESP_ERASE_FLASH, 0, NULL, 0);
 }
 
-static void s_erase_region(const uint8_t* buffer, uint16_t size)
+static void s_erase_region(const uint8_t *buffer, uint16_t size)
 {
     if (size != ERASE_REGION_SIZE) {
         s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    const uint32_t* params = (const uint32_t*)buffer;
+    const uint32_t *params = (const uint32_t *)buffer;
     uint32_t addr = params[0];
     uint32_t erase_size = params[1];
 
@@ -658,17 +659,17 @@ static void s_erase_region(const uint8_t* buffer, uint16_t size)
     s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
 }
 
-inline uint32_t calculate_checksum(const void* data, uint16_t size)
+inline uint32_t calculate_checksum(const void *data, uint16_t size)
 {
     uint32_t checksum = 0xEF;
-    const uint8_t* bytes = data;
+    const uint8_t *bytes = data;
     for (uint16_t i = 0; i < size; i++) {
         checksum ^= bytes[i];
     }
     return checksum;
 }
 
-static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* data, uint16_t data_size,
+static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,
                                    esp_response_code_t response)
 {
     uint8_t response_buffer[MAX_RESPONSE_SIZE] = {0};
@@ -682,12 +683,12 @@ static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* dat
 
     uint8_t direction_byte = DIRECTION_RESPONSE;
 
-    uint8_t* ptr = response_buffer;
+    uint8_t *ptr = response_buffer;
     *ptr++ = direction_byte;
     *ptr++ = command;
-    *(uint16_t*)ptr = resp_data_size;
+    *(uint16_t *)ptr = resp_data_size;
     ptr += sizeof(resp_data_size);
-    *(uint32_t*)ptr = value;
+    *(uint32_t *)ptr = value;
     ptr += sizeof(value);
 
     if (data && data_size > 0) {
@@ -703,15 +704,15 @@ static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t* dat
 
 void handle_command(const uint8_t *buffer, size_t size)
 {
-    const uint8_t* ptr = buffer;
+    const uint8_t *ptr = buffer;
     uint8_t direction = *ptr++;
     uint8_t command = *ptr++;
-    uint16_t packet_size = *(const uint16_t*)ptr;
+    uint16_t packet_size = *(const uint16_t *)ptr;
     ptr += sizeof(packet_size);
-    uint32_t checksum = *(const uint32_t*)ptr;
+    uint32_t checksum = *(const uint32_t *)ptr;
     ptr += sizeof(checksum);
 
-    const uint8_t* data = ptr;
+    const uint8_t *data = ptr;
 
     if (direction != DIRECTION_REQUEST) {
         s_send_error_response(command, RESPONSE_INVALID_COMMAND);

@@ -81,7 +81,8 @@ void stub_transport_init(void)
     // USB-Serial/JTAG
     if (stub_lib_usb_serial_jtag_is_active()) {
         stub_lib_clock_disable_watchdogs();
-        stub_lib_usb_serial_jtag_rominit_intr_attach(USB_INTERRUPT_SOURCE, usb_serial_jtag_rx_interrupt_handler, USB_SERIAL_JTAG_OUT_RECV_PKT_INT_ENA);
+        stub_lib_usb_serial_jtag_rominit_intr_attach(USB_INTERRUPT_SOURCE, usb_serial_jtag_rx_interrupt_handler,
+                                                     USB_SERIAL_JTAG_OUT_RECV_PKT_INT_ENA);
         slip_set_tx_fn(usb_serial_jtag_tx_one_char);
         return;
     }
@@ -90,6 +91,7 @@ void stub_transport_init(void)
     // Wait for 10ms to ensure ROM has sent response to last command
     stub_lib_delay_us(10 * 1000);
     stub_lib_uart_wait_idle(UART_NUM_0);
-    stub_lib_uart_rominit_intr_attach(UART_NUM_0, UART_INTERRUPT_SOURCE, uart_rx_interrupt_handler, UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
+    stub_lib_uart_rominit_intr_attach(UART_NUM_0, UART_INTERRUPT_SOURCE, uart_rx_interrupt_handler,
+                                      UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
     slip_set_tx_fn(stub_lib_uart_tx_one_char);
 }
