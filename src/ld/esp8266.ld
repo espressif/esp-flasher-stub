@@ -6,25 +6,10 @@ MEMORY {
   dram : org = 0x3FFE8100, len = 0x13f00
 }
 
+INCLUDE common.ld
+
+/* Override the commonly defined entrypoint */
 ENTRY(esp_main_esp8266)
-
-SECTIONS {
-  .text : ALIGN(4) {
-    *(.literal)
-    *(.text .text.*)
-  } > iram
-
-  .bss : ALIGN(4) {
-     _bss_start = ABSOLUTE(.);
-    *(.bss)
-	_bss_end = ABSOLUTE(.);
-  } > dram
-
-  .data : ALIGN(4) {
-    *(.data)
-    *(.rodata .rodata.*)
-  } > dram
-}
 
 PROVIDE(SPIFlashModeConfig = 0x40004568);
 PROVIDE(SPIParamCfg = 0x40004c2c);

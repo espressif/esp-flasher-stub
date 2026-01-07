@@ -6,6 +6,7 @@ add_executable(${TARGET_NAME}
 )
 
 target_link_options(${TARGET_NAME} PRIVATE
+    -L${LINKER_SCRIPTS_DIR}
     "-T${CHIP_LINKER_SCRIPT}"
     -Wl,-Map=${CMAKE_BINARY_DIR}/${TARGET_NAME}.map
 )
