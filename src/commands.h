@@ -20,8 +20,8 @@ extern "C" {
 #define ESP_FLASH_DATA          0x03
 #define ESP_FLASH_END           0x04
 #define ESP_MEM_BEGIN           0x05
-#define ESP_MEM_DATA            0x06
-#define ESP_MEM_END             0x07
+#define ESP_MEM_END             0x06
+#define ESP_MEM_DATA            0x07
 #define ESP_SYNC                0x08
 #define ESP_WRITE_REG           0x09
 #define ESP_READ_REG            0x0A
