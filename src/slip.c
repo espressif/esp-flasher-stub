@@ -166,7 +166,7 @@ bool slip_is_frame_error(void)
     return s_recv_ctx.frame_error;
 }
 
-const uint8_t* slip_get_frame_data(size_t *length)
+const uint8_t *slip_get_frame_data(size_t *length)
 {
     if (length) {
         *length = s_recv_ctx.frame_length;

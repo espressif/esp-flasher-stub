@@ -89,7 +89,7 @@ bool slip_is_frame_error(void);
  * @param length Pointer to store the frame length
  * @return Pointer to frame data buffer
  */
-const uint8_t* slip_get_frame_data(size_t *length);
+const uint8_t *slip_get_frame_data(size_t *length);
 
 /**
  * @brief Reset receive state for next frame

@@ -5,14 +5,7 @@ add_executable(${TARGET_NAME}
     "transport.c"
 )
 
-target_compile_options(${TARGET_NAME} PRIVATE
-    ${ESP_FIRMWARE_C_FLAGS}
-    ${TARGET_FLAGS}
-)
-
 target_link_options(${TARGET_NAME} PRIVATE
-    ${ESP_FIRMWARE_LINKER_FLAGS}
-    ${TARGET_FLAGS}
     "-T${CHIP_LINKER_SCRIPT}"
     -Wl,-Map=${CMAKE_BINARY_DIR}/${TARGET_NAME}.map
 )

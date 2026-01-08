@@ -36,7 +36,7 @@ void __system_init(void)
     uintptr_t end = (uintptr_t)&_bss_end;
 
     for (uintptr_t addr = start; addr < end; addr += sizeof(uint32_t)) {
-        *(uint32_t*)addr = 0;
+        *(uint32_t *)addr = 0;
     }
 
     // Initialize UART using esp-stub-lib functions only
