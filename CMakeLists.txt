@@ -6,8 +6,20 @@ if("${TARGET_CHIP}" STREQUAL "OFF")
     message(FATAL_ERROR "Please set target chip via -DTARGET_CHIP.")
 endif()
 
+# esp-stub-lib uses ESP_TARGET as the base chip directory name (no -rev suffix),
+# and an optional ESP_TARGET_REV to select the correct ROM/behavior.
+# Example:
+# - TARGET_CHIP=esp32p4-rev1  -> ESP_TARGET=esp32p4, ESP_TARGET_REV=rev1
+# - TARGET_CHIP=esp32p4       -> ESP_TARGET=esp32p4, ESP_TARGET_REV=""
+set(ESP_TARGET_BASE "${TARGET_CHIP}")
+set(ESP_TARGET_REV "" CACHE STRING "Target ESP chip revision (e.g. rev1)" FORCE)
+if(TARGET_CHIP MATCHES "^(.*)-rev([0-9]+)$")
+    set(ESP_TARGET_BASE "${CMAKE_MATCH_1}")
+    set(ESP_TARGET_REV "rev${CMAKE_MATCH_2}" CACHE STRING "Target ESP chip revision (e.g. rev1)" FORCE)
+endif()
+
 # Set up ESP_TARGET for toolchain and build system
-set(ESP_TARGET ${TARGET_CHIP} CACHE STRING "Target ESP chip" FORCE)
+set(ESP_TARGET ${ESP_TARGET_BASE} CACHE STRING "Target ESP chip" FORCE)
 
 # Configure ESP toolchain
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
