@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
@@ -19,6 +19,12 @@ extern "C" {
 #define SLIP_ESC            0xDB    /* Escape character */
 #define SLIP_ESC_END        0xDC    /* Escaped frame delimiter */
 #define SLIP_ESC_ESC        0xDD    /* Escaped escape character */
+
+typedef enum {
+    SLIP_STATE_IDLE,         /* No frame processing */
+    SLIP_STATE_COMPLETE,     /* Frame complete and ready */
+    SLIP_STATE_ERROR,        /* Frame error occurred */
+} slip_frame_state_t;
 
 /**
  * @brief Register TX function used by SLIP to send bytes
@@ -60,8 +66,9 @@ void slip_send_frame(const void *data, size_t size);
 /**
  * @brief Process incoming byte through SLIP decoder
  *
- * This function should be called for each received byte from the interrupt.
- * It will decode the SLIP protocol and fill an internal buffer.
+ * This function should be called for each received byte.
+ * Uses multi-buffering (configurable via SLIP_NUM_BUFFERS) for zero-copy operation.
+ * Automatically switches to next available buffer when current frame completes.
  *
  * @param byte Incoming byte
  */
@@ -82,18 +89,27 @@ bool slip_is_frame_complete(void);
 bool slip_is_frame_error(void);
 
 /**
- * @brief Get pointer to received frame data
+ * @brief Query frame state and get data/error info
  *
- * Only call this when slip_is_frame_complete() returns true.
+ * @return SLIP_STATE_COMPLETE, SLIP_STATE_ERROR, or SLIP_STATE_IDLE
+ */
+slip_frame_state_t slip_get_frame_state(void);
+
+/**
+ * @brief Get pointer to frame data (ZERO-COPY)
  *
- * @param length Pointer to store the frame length
- * @return Pointer to frame data buffer
+ * Returns direct pointer to frame buffer - no memcpy needed!
+ * Pointer remains valid until slip_recv_reset() is called.
+ *
+ * @param length Pointer to store the frame length (can be NULL)
+ * @return Pointer to frame data buffer, or NULL if no frame available
  */
 const uint8_t *slip_get_frame_data(size_t *length);
 
 /**
  * @brief Reset receive state for next frame
  *
+ * Switches to the other buffer and allows reception to continue.
  * Call this after processing a complete frame or to clear an error.
  */
 void slip_recv_reset(void);
