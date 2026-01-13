@@ -21,7 +21,15 @@
 #include <esp-stub-lib/miniz.h>
 #include <esp-stub-lib/bit_utils.h>
 
-struct operation_state {
+struct memory_operation_state {
+    uint32_t total_remaining;
+    uint32_t num_blocks;
+    uint32_t block_size;
+    uint32_t offset;
+    bool in_progress;
+};
+
+struct flash_operation_state {
     uint32_t total_remaining;
     uint32_t num_blocks;
     uint32_t block_size;
@@ -41,8 +49,8 @@ struct operation_state {
 #define MAX_RESPONSE_DATA_SIZE 64
 #define MAX_RESPONSE_SIZE (HEADER_SIZE + MAX_RESPONSE_DATA_SIZE + RESPONSE_STATUS_SIZE)
 
-static struct operation_state s_flash_state = {0};
-static struct operation_state s_memory_state = {0};
+static struct flash_operation_state s_flash_state = {0};
+static struct memory_operation_state s_memory_state = {0};
 
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,
                                    esp_response_code_t response);
@@ -571,7 +579,7 @@ static void s_read_flash(const uint8_t *buffer, uint16_t size)
     uint32_t packet_size = params[2];
     uint32_t max_unacked_packets = params[3];
 
-    static uint8_t data[4102] __attribute__((aligned(4)));
+    uint8_t data[4102] __attribute__((aligned(4)));
     uint32_t read_size_remaining = read_size;
     uint32_t sent_packets = 0;
     uint32_t acked_data_size = 0;
