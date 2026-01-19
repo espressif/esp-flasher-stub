@@ -65,6 +65,16 @@ static inline void s_send_success_response(uint8_t command, uint32_t value, uint
     s_send_response_packet(command, value, data, data_size, RESPONSE_SUCCESS);
 }
 
+static uint32_t calculate_checksum(const void *data, uint32_t size)
+{
+    uint32_t checksum = 0xEF;
+    const uint8_t *bytes = data;
+    for (uint32_t i = 0; i < size; i++) {
+        checksum ^= bytes[i];
+    }
+    return checksum;
+}
+
 static void s_sync(uint16_t size)
 {
     /* Bootloader responds to the SYNC request with eight identical SYNC responses.
@@ -113,7 +123,7 @@ static void s_flash_begin(const uint8_t *buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_BEGIN, 0, NULL, 0);
 }
 
-static void s_flash_data(const uint8_t *buffer, uint16_t size)
+static void s_flash_data(const uint8_t *buffer, uint16_t size, uint32_t packet_checksum)
 {
     if (size < FLASH_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DATA, RESPONSE_NOT_ENOUGH_DATA);
@@ -133,6 +143,13 @@ static void s_flash_data(const uint8_t *buffer, uint16_t size)
 
     if (data_len != actual_data_size) {
         s_send_error_response(ESP_FLASH_DATA, RESPONSE_TOO_MUCH_DATA);
+        return;
+    }
+
+    // Validate checksum of the flash data
+    uint32_t calculated_checksum = calculate_checksum(flash_data, actual_data_size);
+    if (calculated_checksum != packet_checksum) {
+        s_send_error_response(ESP_FLASH_DATA, RESPONSE_BAD_DATA_CHECKSUM);
         return;
     }
 
@@ -396,7 +413,7 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_DEFL_BEGIN, 0, NULL, 0);
 }
 
-static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
+static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t packet_checksum)
 {
     if (size < FLASH_DEFL_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_LEN);
@@ -417,6 +434,13 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
     uint32_t data_size = params[0];
     uint32_t seq = params[1];
     size_t compressed_remaining = data_size;
+
+    // Validate checksum of the compressed data
+    uint32_t calculated_checksum = calculate_checksum(compressed_data, data_size);
+    if (calculated_checksum != packet_checksum) {
+        s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_CHECKSUM);
+        return;
+    }
 
     // Parse zlib header only on the first data call (when no blocks have been written yet)
     mz_uint32 flags = (seq == 0) ? TINFL_FLAG_PARSE_ZLIB_HEADER : 0;
@@ -667,16 +691,6 @@ static void s_erase_region(const uint8_t *buffer, uint16_t size)
     s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
 }
 
-inline uint32_t calculate_checksum(const void *data, uint16_t size)
-{
-    uint32_t checksum = 0xEF;
-    const uint8_t *bytes = data;
-    for (uint16_t i = 0; i < size; i++) {
-        checksum ^= bytes[i];
-    }
-    return checksum;
-}
-
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,
                                    esp_response_code_t response)
 {
@@ -742,7 +756,7 @@ void handle_command(const uint8_t *buffer, size_t size)
         break;
 
     case ESP_FLASH_DATA:
-        s_flash_data(data, packet_size);
+        s_flash_data(data, packet_size, checksum);
         break;
 
     case ESP_FLASH_END:
@@ -786,7 +800,7 @@ void handle_command(const uint8_t *buffer, size_t size)
         break;
 
     case ESP_FLASH_DEFL_DATA:
-        s_flash_defl_data(data, packet_size);
+        s_flash_defl_data(data, packet_size, checksum);
         break;
 
     case ESP_FLASH_DEFL_END:
