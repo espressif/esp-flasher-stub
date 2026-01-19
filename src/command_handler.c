@@ -682,10 +682,13 @@ static void s_erase_region(const uint8_t *buffer, uint16_t size)
     uint32_t addr = params[0];
     uint32_t erase_size = params[1];
 
-    int result = stub_lib_flash_erase_area(addr, erase_size);
-    if (result != STUB_LIB_OK) {
-        s_send_error_response(ESP_ERASE_REGION, RESPONSE_FAILED_SPI_OP);
+    if (addr % STUB_FLASH_SECTOR_SIZE || erase_size % STUB_FLASH_SECTOR_SIZE) {
+        s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
+    }
+
+    while (erase_size > 0) {
+        stub_lib_flash_start_next_erase(&addr, &erase_size);
     }
 
     s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
