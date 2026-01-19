@@ -164,6 +164,9 @@ static void s_flash_data(const uint8_t *buffer, uint16_t size, uint32_t packet_c
         return;
     }
 
+    // Send success response before writing data to flash to signal that data can be received into second buffer
+    s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
+
     uint32_t write_data_size = MIN(actual_data_size, s_flash_state.total_remaining);
 
     // Check if we have erased enough to write the data, if not, start the next erase and wait for it to complete
@@ -182,7 +185,6 @@ static void s_flash_data(const uint8_t *buffer, uint16_t size, uint32_t packet_c
     }
     s_flash_state.total_remaining -= write_data_size;
     s_flash_state.offset += write_data_size;
-    s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
 }
 
 static void s_flash_end(const uint8_t *buffer, uint16_t size)
@@ -469,6 +471,9 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
         return;
     }
 
+    // Send success response before writing data to flash to signal that data can be received into second buffer
+    s_send_success_response(ESP_FLASH_DEFL_DATA, 0, NULL, 0);
+
     // Parse zlib header only on the first data call (when no blocks have been written yet)
     mz_uint32 flags = (seq == 0) ? TINFL_FLAG_PARSE_ZLIB_HEADER : 0;
 
@@ -521,7 +526,6 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
             decompressed_data_ptr = decompressed_data;
         }
     }
-    s_send_success_response(ESP_FLASH_DEFL_DATA, 0, NULL, 0);
 }
 
 static void s_flash_defl_end(const uint8_t *buffer, uint16_t size)
