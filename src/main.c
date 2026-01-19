@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <esp-stub-lib/flash.h>
 #include <esp-stub-lib/clock.h>
-#include <esp-stub-lib/usb_serial_jtag.h>
+#include <esp-stub-lib/usb_otg.h>
 #include "command_handler.h"
 #include "slip.h"
 #include "transport.h"
@@ -34,10 +34,12 @@ void esp_main(void)
         *p = 0;
     }
 
+    const stub_transport_type_t transport = stub_transport_detect();
+
     // stub_lib_clock_init() increases CPU frequency which benefits both USB and UART transfers.
-    // Currently only enabled for USB-Serial/JTAG due to concerns about instability (observed on ESP32-S3),
+    // Currently only enabled for USB transfers due to concerns about instability (observed on ESP32-S3),
     // because DBIAS voltage not being set. This needs investigation and potentially enabling for all transport types.
-    if (stub_lib_usb_serial_jtag_is_active()) {
+    if (transport == STUB_TRANSPORT_USB_OTG || transport == STUB_TRANSPORT_USB_SERIAL_JTAG) {
         stub_lib_clock_init();
     }
 
@@ -45,7 +47,7 @@ void esp_main(void)
     stub_lib_flash_init(&flash_state);
     stub_lib_flash_attach(0, false);
 
-    stub_transport_init();
+    stub_transport_init(transport);
 
     // Send OHAI greeting to signal stub is active
     const uint8_t greeting[4] = {'O', 'H', 'A', 'I'};
@@ -58,8 +60,17 @@ void esp_main(void)
             const uint8_t *frame_data = slip_get_frame_data(&frame_length);
             handle_command(frame_data, frame_length);
             slip_recv_reset();
-        } else if (frame_state == SLIP_STATE_ERROR) {
+            continue;
+        }
+
+        if (frame_state == SLIP_STATE_ERROR) {
             slip_recv_reset();
+            continue;
+        }
+
+        // Handle chip reset requests via CDC-ACM RTS line toggling in USB-OTG mode
+        if (transport == STUB_TRANSPORT_USB_OTG && stub_lib_usb_otg_is_reset_requested()) {
+            stub_lib_usb_otg_handle_reset();
         }
     }
 

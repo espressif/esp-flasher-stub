@@ -45,6 +45,17 @@ void usb_serial_jtag_rx_interrupt_handler()
     }
 }
 
+stub_transport_type_t stub_transport_detect(void)
+{
+    if (stub_lib_usb_otg_is_active()) {
+        return STUB_TRANSPORT_USB_OTG;
+    }
+    if (stub_lib_usb_serial_jtag_is_active()) {
+        return STUB_TRANSPORT_USB_SERIAL_JTAG;
+    }
+    return STUB_TRANSPORT_UART;
+}
+
 uint8_t usb_serial_jtag_tx_one_char(uint8_t c)
 {
     // Flush every 63 bytes (some Windows drivers have issues with >= 64 bytes)
@@ -69,29 +80,29 @@ uint8_t usb_otg_tx_one_char(uint8_t c)
     return 0;
 }
 
-void stub_transport_init(void)
+void stub_transport_init(stub_transport_type_t transport)
 {
-    // USB-OTG
-    if (stub_lib_usb_otg_is_active()) {
+    switch (transport) {
+    case STUB_TRANSPORT_USB_OTG:
         stub_lib_usb_otg_rominit_intr_attach(USB_INTERRUPT_SOURCE, slip_recv_byte);
         slip_set_tx_fn(usb_otg_tx_one_char);
         return;
-    }
 
-    // USB-Serial/JTAG
-    if (stub_lib_usb_serial_jtag_is_active()) {
+    case STUB_TRANSPORT_USB_SERIAL_JTAG:
         stub_lib_clock_disable_watchdogs();
         stub_lib_usb_serial_jtag_rominit_intr_attach(USB_INTERRUPT_SOURCE, usb_serial_jtag_rx_interrupt_handler,
                                                      USB_SERIAL_JTAG_OUT_RECV_PKT_INT_ENA);
         slip_set_tx_fn(usb_serial_jtag_tx_one_char);
         return;
-    }
 
-    // UART (if no USB transport is being used)
-    // Wait for 10ms to ensure ROM has sent response to last command
-    stub_lib_delay_us(10 * 1000);
-    stub_lib_uart_wait_idle(UART_NUM_0);
-    stub_lib_uart_rominit_intr_attach(UART_NUM_0, UART_INTERRUPT_SOURCE, uart_rx_interrupt_handler,
-                                      UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
-    slip_set_tx_fn(stub_lib_uart_tx_one_char);
+    case STUB_TRANSPORT_UART:
+    default:
+        // Wait for 10ms to ensure ROM has sent response to last command
+        stub_lib_delay_us(10 * 1000);
+        stub_lib_uart_wait_idle(UART_NUM_0);
+        stub_lib_uart_rominit_intr_attach(UART_NUM_0, UART_INTERRUPT_SOURCE, uart_rx_interrupt_handler,
+                                          UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
+        slip_set_tx_fn(stub_lib_uart_tx_one_char);
+        return;
+    }
 }
