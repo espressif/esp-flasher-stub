@@ -38,6 +38,9 @@ struct flash_operation_state {
     tinfl_decompressor decompressor;
     bool encrypt;
     bool in_progress;
+    /* Async erase state */
+    uint32_t next_erase_addr;
+    uint32_t erase_remaining;
 };
 
 #define ADLER32_CHECKSUM_SIZE 4
@@ -114,8 +117,16 @@ static void s_flash_begin(const uint8_t *buffer, uint16_t size)
     }
     s_flash_state.in_progress = true;
 
-    int result = stub_lib_flash_erase_area(s_flash_state.offset, s_flash_state.total_remaining);
-    if (result != STUB_LIB_OK) {
+    // Calculate total erase size (round to nearest sector boundary)
+    uint32_t erase_start = s_flash_state.offset & ~(STUB_FLASH_SECTOR_SIZE - 1);
+    uint32_t erase_end = (s_flash_state.offset + s_flash_state.total_remaining + (STUB_FLASH_SECTOR_SIZE - 1)) & ~
+                         (STUB_FLASH_SECTOR_SIZE - 1);
+    s_flash_state.erase_remaining = erase_end - erase_start;
+    s_flash_state.next_erase_addr = erase_start;
+
+    // Start the next erase operation, but do not wait for it to complete
+    int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+    if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
         s_send_error_response(ESP_FLASH_BEGIN, RESPONSE_FAILED_SPI_OP);
         return;
     }
@@ -155,12 +166,20 @@ static void s_flash_data(const uint8_t *buffer, uint16_t size, uint32_t packet_c
 
     uint32_t write_data_size = MIN(actual_data_size, s_flash_state.total_remaining);
 
+    // Check if we have erased enough to write the data, if not, start the next erase and wait for it to complete
+    while (s_flash_state.next_erase_addr < (s_flash_state.offset + write_data_size)) {
+        int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+            s_send_error_response(ESP_FLASH_DATA, RESPONSE_FAILED_SPI_OP);
+            return;
+        }
+    }
+
     int result = stub_lib_flash_write_buff(s_flash_state.offset, flash_data, write_data_size, s_flash_state.encrypt);
     if (result != STUB_LIB_OK) {
         s_send_error_response(ESP_FLASH_DATA, RESPONSE_FAILED_SPI_OP);
         return;
     }
-
     s_flash_state.total_remaining -= write_data_size;
     s_flash_state.offset += write_data_size;
     s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
@@ -404,8 +423,16 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
     s_flash_state.in_progress = true;
     tinfl_init(&s_flash_state.decompressor);
 
-    int result = stub_lib_flash_erase_area(s_flash_state.offset, s_flash_state.total_remaining);
-    if (result != STUB_LIB_OK) {
+    // Calculate total erase size (round to nearest sector boundary)
+    uint32_t erase_start = s_flash_state.offset & ~(STUB_FLASH_SECTOR_SIZE - 1);
+    uint32_t erase_end = (s_flash_state.offset + s_flash_state.total_remaining + (STUB_FLASH_SECTOR_SIZE - 1)) & ~
+                         (STUB_FLASH_SECTOR_SIZE - 1);
+    s_flash_state.erase_remaining = erase_end - erase_start;
+    s_flash_state.next_erase_addr = erase_start;
+
+    // Start the next erase operation, but do not wait for it to complete
+    int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+    if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
         s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_FAILED_SPI_OP);
         return;
     }
@@ -453,6 +480,14 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
         if (s_flash_state.compressed_remaining > compressed_remaining) {
             flags |= TINFL_FLAG_HAS_MORE_INPUT;
         }
+
+        /* Start opportunistic erase during decompression */
+        int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+            s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
+            return;
+        }
+
         status = tinfl_decompress(&s_flash_state.decompressor,
                                   compressed_data + data_size - compressed_remaining,
                                   &in_bytes,
@@ -466,8 +501,17 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
         flags = 0;
 
         if (status == TINFL_STATUS_DONE || decompressed_data_ptr >= decompressed_data + sizeof(decompressed_data)) {
-            int result = stub_lib_flash_write_buff(s_flash_state.offset, decompressed_data,
-                                                   (uint16_t)(decompressed_data_ptr - decompressed_data), s_flash_state.encrypt);
+            // Check if we have erased enough to write the data, if not, start the next erase and wait for it to complete
+            uint16_t write_data_size = (uint16_t)(decompressed_data_ptr - decompressed_data);
+            while (s_flash_state.next_erase_addr < (s_flash_state.offset + write_data_size)) {
+                result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+                if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+                    s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
+                    return;
+                }
+            }
+
+            result = stub_lib_flash_write_buff(s_flash_state.offset, decompressed_data, write_data_size, s_flash_state.encrypt);
             if (result != STUB_LIB_OK) {
                 s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
                 return;
