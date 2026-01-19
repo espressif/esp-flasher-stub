@@ -277,7 +277,7 @@ static void s_mem_end(const uint8_t *buffer, uint16_t size)
 
     s_send_success_response(ESP_MEM_END, 0, NULL, 0);
 
-    if (flag == 1) {
+    if (flag == 0) {
         // TODO: consider delay - was in previous code
         stub_lib_uart_tx_flush(UART_NUM_0);
 
