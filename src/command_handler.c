@@ -21,7 +21,15 @@
 #include <esp-stub-lib/miniz.h>
 #include <esp-stub-lib/bit_utils.h>
 
-struct operation_state {
+struct memory_operation_state {
+    uint32_t total_remaining;
+    uint32_t num_blocks;
+    uint32_t block_size;
+    uint32_t offset;
+    bool in_progress;
+};
+
+struct flash_operation_state {
     uint32_t total_remaining;
     uint32_t num_blocks;
     uint32_t block_size;
@@ -30,6 +38,9 @@ struct operation_state {
     tinfl_decompressor decompressor;
     bool encrypt;
     bool in_progress;
+    /* Async erase state */
+    uint32_t next_erase_addr;
+    uint32_t erase_remaining;
 };
 
 #define ADLER32_CHECKSUM_SIZE 4
@@ -41,8 +52,8 @@ struct operation_state {
 #define MAX_RESPONSE_DATA_SIZE 64
 #define MAX_RESPONSE_SIZE (HEADER_SIZE + MAX_RESPONSE_DATA_SIZE + RESPONSE_STATUS_SIZE)
 
-static struct operation_state s_flash_state = {0};
-static struct operation_state s_memory_state = {0};
+static struct flash_operation_state s_flash_state = {0};
+static struct memory_operation_state s_memory_state = {0};
 
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,
                                    esp_response_code_t response);
@@ -55,6 +66,16 @@ static inline void s_send_error_response(uint8_t command, esp_response_code_t re
 static inline void s_send_success_response(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size)
 {
     s_send_response_packet(command, value, data, data_size, RESPONSE_SUCCESS);
+}
+
+static uint32_t calculate_checksum(const void *data, uint32_t size)
+{
+    uint32_t checksum = 0xEF;
+    const uint8_t *bytes = data;
+    for (uint32_t i = 0; i < size; i++) {
+        checksum ^= bytes[i];
+    }
+    return checksum;
 }
 
 static void s_sync(uint16_t size)
@@ -96,8 +117,16 @@ static void s_flash_begin(const uint8_t *buffer, uint16_t size)
     }
     s_flash_state.in_progress = true;
 
-    int result = stub_lib_flash_erase_area(s_flash_state.offset, s_flash_state.total_remaining);
-    if (result != STUB_LIB_OK) {
+    // Calculate total erase size (round to nearest sector boundary)
+    uint32_t erase_start = s_flash_state.offset & ~(STUB_FLASH_SECTOR_SIZE - 1);
+    uint32_t erase_end = (s_flash_state.offset + s_flash_state.total_remaining + (STUB_FLASH_SECTOR_SIZE - 1)) & ~
+                         (STUB_FLASH_SECTOR_SIZE - 1);
+    s_flash_state.erase_remaining = erase_end - erase_start;
+    s_flash_state.next_erase_addr = erase_start;
+
+    // Start the next erase operation, but do not wait for it to complete
+    int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+    if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
         s_send_error_response(ESP_FLASH_BEGIN, RESPONSE_FAILED_SPI_OP);
         return;
     }
@@ -105,7 +134,7 @@ static void s_flash_begin(const uint8_t *buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_BEGIN, 0, NULL, 0);
 }
 
-static void s_flash_data(const uint8_t *buffer, uint16_t size)
+static void s_flash_data(const uint8_t *buffer, uint16_t size, uint32_t packet_checksum)
 {
     if (size < FLASH_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DATA, RESPONSE_NOT_ENOUGH_DATA);
@@ -128,17 +157,34 @@ static void s_flash_data(const uint8_t *buffer, uint16_t size)
         return;
     }
 
+    // Validate checksum of the flash data
+    uint32_t calculated_checksum = calculate_checksum(flash_data, actual_data_size);
+    if (calculated_checksum != packet_checksum) {
+        s_send_error_response(ESP_FLASH_DATA, RESPONSE_BAD_DATA_CHECKSUM);
+        return;
+    }
+
+    // Send success response before writing data to flash to signal that data can be received into second buffer
+    s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
+
     uint32_t write_data_size = MIN(actual_data_size, s_flash_state.total_remaining);
+
+    // Check if we have erased enough to write the data, if not, start the next erase and wait for it to complete
+    while (s_flash_state.next_erase_addr < (s_flash_state.offset + write_data_size)) {
+        int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+            s_send_error_response(ESP_FLASH_DATA, RESPONSE_FAILED_SPI_OP);
+            return;
+        }
+    }
 
     int result = stub_lib_flash_write_buff(s_flash_state.offset, flash_data, write_data_size, s_flash_state.encrypt);
     if (result != STUB_LIB_OK) {
         s_send_error_response(ESP_FLASH_DATA, RESPONSE_FAILED_SPI_OP);
         return;
     }
-
     s_flash_state.total_remaining -= write_data_size;
     s_flash_state.offset += write_data_size;
-    s_send_success_response(ESP_FLASH_DATA, 0, NULL, 0);
 }
 
 static void s_flash_end(const uint8_t *buffer, uint16_t size)
@@ -252,7 +298,7 @@ static void s_mem_end(const uint8_t *buffer, uint16_t size)
 
     s_send_success_response(ESP_MEM_END, 0, NULL, 0);
 
-    if (flag == 1) {
+    if (flag == 0) {
         // TODO: consider delay - was in previous code
         stub_lib_uart_tx_flush(UART_NUM_0);
 
@@ -379,8 +425,16 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
     s_flash_state.in_progress = true;
     tinfl_init(&s_flash_state.decompressor);
 
-    int result = stub_lib_flash_erase_area(s_flash_state.offset, s_flash_state.total_remaining);
-    if (result != STUB_LIB_OK) {
+    // Calculate total erase size (round to nearest sector boundary)
+    uint32_t erase_start = s_flash_state.offset & ~(STUB_FLASH_SECTOR_SIZE - 1);
+    uint32_t erase_end = (s_flash_state.offset + s_flash_state.total_remaining + (STUB_FLASH_SECTOR_SIZE - 1)) & ~
+                         (STUB_FLASH_SECTOR_SIZE - 1);
+    s_flash_state.erase_remaining = erase_end - erase_start;
+    s_flash_state.next_erase_addr = erase_start;
+
+    // Start the next erase operation, but do not wait for it to complete
+    int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+    if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
         s_send_error_response(ESP_FLASH_DEFL_BEGIN, RESPONSE_FAILED_SPI_OP);
         return;
     }
@@ -388,7 +442,7 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
     s_send_success_response(ESP_FLASH_DEFL_BEGIN, 0, NULL, 0);
 }
 
-static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
+static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t packet_checksum)
 {
     if (size < FLASH_DEFL_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_LEN);
@@ -410,6 +464,16 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
     uint32_t seq = params[1];
     size_t compressed_remaining = data_size;
 
+    // Validate checksum of the compressed data
+    uint32_t calculated_checksum = calculate_checksum(compressed_data, data_size);
+    if (calculated_checksum != packet_checksum) {
+        s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_CHECKSUM);
+        return;
+    }
+
+    // Send success response before writing data to flash to signal that data can be received into second buffer
+    s_send_success_response(ESP_FLASH_DEFL_DATA, 0, NULL, 0);
+
     // Parse zlib header only on the first data call (when no blocks have been written yet)
     mz_uint32 flags = (seq == 0) ? TINFL_FLAG_PARSE_ZLIB_HEADER : 0;
 
@@ -421,6 +485,14 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
         if (s_flash_state.compressed_remaining > compressed_remaining) {
             flags |= TINFL_FLAG_HAS_MORE_INPUT;
         }
+
+        /* Start opportunistic erase during decompression */
+        int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+            s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
+            return;
+        }
+
         status = tinfl_decompress(&s_flash_state.decompressor,
                                   compressed_data + data_size - compressed_remaining,
                                   &in_bytes,
@@ -434,8 +506,17 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
         flags = 0;
 
         if (status == TINFL_STATUS_DONE || decompressed_data_ptr >= decompressed_data + sizeof(decompressed_data)) {
-            int result = stub_lib_flash_write_buff(s_flash_state.offset, decompressed_data,
-                                                   (uint16_t)(decompressed_data_ptr - decompressed_data), s_flash_state.encrypt);
+            // Check if we have erased enough to write the data, if not, start the next erase and wait for it to complete
+            uint16_t write_data_size = (uint16_t)(decompressed_data_ptr - decompressed_data);
+            while (s_flash_state.next_erase_addr < (s_flash_state.offset + write_data_size)) {
+                result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr, &s_flash_state.erase_remaining);
+                if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+                    s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
+                    return;
+                }
+            }
+
+            result = stub_lib_flash_write_buff(s_flash_state.offset, decompressed_data, write_data_size, s_flash_state.encrypt);
             if (result != STUB_LIB_OK) {
                 s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
                 return;
@@ -445,7 +526,6 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size)
             decompressed_data_ptr = decompressed_data;
         }
     }
-    s_send_success_response(ESP_FLASH_DEFL_DATA, 0, NULL, 0);
 }
 
 static void s_flash_defl_end(const uint8_t *buffer, uint16_t size)
@@ -569,9 +649,13 @@ static void s_read_flash(const uint8_t *buffer, uint16_t size)
     uint32_t offset = params[0];
     uint32_t read_size = params[1];
     uint32_t packet_size = params[2];
-    uint32_t max_unacked_packets = params[3];
+    // Packet contains max in-flight packets, which esptool and other tools set to 64 or higher,
+    // but old stub interpreted this always as 1 due to a bug. When interpreted correctly, esptool
+    // cannot handle the data flow due to the implementation. Setting it to 2 to avoid possible issues,
+    // while still slightly benefitting from the increased throughput.
+    uint32_t max_unacked_packets = 2;
 
-    static uint8_t data[4102] __attribute__((aligned(4)));
+    uint8_t data[4102] __attribute__((aligned(4)));
     uint32_t read_size_remaining = read_size;
     uint32_t sent_packets = 0;
     uint32_t acked_data_size = 0;
@@ -650,23 +734,16 @@ static void s_erase_region(const uint8_t *buffer, uint16_t size)
     uint32_t addr = params[0];
     uint32_t erase_size = params[1];
 
-    int result = stub_lib_flash_erase_area(addr, erase_size);
-    if (result != STUB_LIB_OK) {
-        s_send_error_response(ESP_ERASE_REGION, RESPONSE_FAILED_SPI_OP);
+    if (addr % STUB_FLASH_SECTOR_SIZE || erase_size % STUB_FLASH_SECTOR_SIZE) {
+        s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
-}
-
-inline uint32_t calculate_checksum(const void *data, uint16_t size)
-{
-    uint32_t checksum = 0xEF;
-    const uint8_t *bytes = data;
-    for (uint16_t i = 0; i < size; i++) {
-        checksum ^= bytes[i];
+    while (erase_size > 0) {
+        stub_lib_flash_start_next_erase(&addr, &erase_size);
     }
-    return checksum;
+
+    s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
 }
 
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,
@@ -734,7 +811,7 @@ void handle_command(const uint8_t *buffer, size_t size)
         break;
 
     case ESP_FLASH_DATA:
-        s_flash_data(data, packet_size);
+        s_flash_data(data, packet_size, checksum);
         break;
 
     case ESP_FLASH_END:
@@ -778,7 +855,7 @@ void handle_command(const uint8_t *buffer, size_t size)
         break;
 
     case ESP_FLASH_DEFL_DATA:
-        s_flash_defl_data(data, packet_size);
+        s_flash_defl_data(data, packet_size, checksum);
         break;
 
     case ESP_FLASH_DEFL_END:
