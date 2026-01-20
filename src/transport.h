@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
@@ -15,9 +15,26 @@ extern "C" {
 #endif
 
 /**
+ * @brief Supported transport types
+ */
+typedef enum {
+    STUB_TRANSPORT_UART = 0,
+    STUB_TRANSPORT_USB_OTG = 1,
+    STUB_TRANSPORT_USB_SERIAL_JTAG = 2,
+} stub_transport_type_t;
+
+/**
+ * @brief Detect which transport is active (selected by ROM)
+ *
+ * This should be called once at startup and the result reused, to avoid repeated
+ * USB transport probing.
+ */
+stub_transport_type_t stub_transport_detect(void);
+
+/**
  * @brief Initialize the transport layer
  */
-void stub_transport_init(void);
+void stub_transport_init(stub_transport_type_t transport);
 
 /**
  * @brief UART interrupt handler
