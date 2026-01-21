@@ -37,6 +37,17 @@ extern "C" {
 #define ESP_ERASE_REGION        0xD1
 #define ESP_READ_FLASH          0xD2
 #define ESP_RUN_USER_CODE       0xD3
+#define ESP_FLASH_ENCRYPT_DATA  0xD4
+// NAND flash commands (stub only)
+#define ESP_SPI_NAND_ATTACH     0xD5
+#define ESP_SPI_NAND_READ_BBM   0xD6
+#define ESP_SPI_NAND_WRITE_BBM  0xD7
+#define ESP_SPI_NAND_READ_FLASH  0xD8
+#define ESP_SPI_NAND_WRITE_FLASH_BEGIN 0xD9
+#define ESP_SPI_NAND_WRITE_FLASH_DATA  0xDA
+#define ESP_SPI_NAND_ERASE_FLASH      0xDB
+#define ESP_SPI_NAND_ERASE_REGION     0xDC
+#define ESP_SPI_NAND_READ_PAGE_DEBUG 0xDD
 
 /**
  * @brief ESP command response codes (16-bit)
@@ -83,6 +94,19 @@ enum esp_response_code {
 #define READ_FLASH_SIZE             16
 #define ERASE_FLASH_SIZE            0
 #define ERASE_REGION_SIZE           8
+// NAND flash command sizes
+#define SPI_NAND_ATTACH_SIZE        4
+#define SPI_NAND_READ_BBM_SIZE      4
+/* 4 bytes page_number + 1 byte is_bad */
+#define SPI_NAND_WRITE_BBM_SIZE     5
+/* same as READ_FLASH: offset, size, packet_size, max_inflight */
+#define SPI_NAND_READ_FLASH_SIZE    16
+/* offset, total_size, block_size, packet_size */
+#define SPI_NAND_WRITE_FLASH_BEGIN_SIZE 16
+/* same as FLASH_DATA_HEADER_SIZE */
+#define SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE 16
+/* page_number (uint32_t LE) */
+#define SPI_NAND_READ_PAGE_DEBUG_SIZE 4
 
 #ifdef __cplusplus
 }
