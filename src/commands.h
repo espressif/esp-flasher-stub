@@ -37,7 +37,7 @@ extern "C" {
 #define ESP_ERASE_REGION        0xD1
 #define ESP_READ_FLASH          0xD2
 #define ESP_RUN_USER_CODE       0xD3
-#define ESP_FLASH_ENCRYPT_DATA  0xD4  /* reserved — handler not yet implemented */
+#define ESP_FLASH_ENCRYPT_DATA  0xD4
 // NAND flash commands (stub only)
 #define ESP_SPI_NAND_ATTACH     0xD5
 #define ESP_SPI_NAND_READ_BBM   0xD6

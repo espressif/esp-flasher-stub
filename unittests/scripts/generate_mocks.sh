@@ -104,9 +104,13 @@ generate_mocks() {
     print_status "Generating mock for nand..."
     ruby CMock/scripts/create_mock.rb ../esp-stub-lib/src/target/base/include/target/nand.h
 
-    # Generate mock for slip
+    # Generate mock for slip (with callback plugin for StubWithCallback support)
     print_status "Generating mock for slip..."
-    ruby CMock/scripts/create_mock.rb ../src/slip.h
+    ruby scripts/create_mock_with_callbacks.rb ../src/slip.h
+
+    # Generate mock for md5 (with callback plugin for StubWithCallback support)
+    print_status "Generating mock for md5..."
+    ruby scripts/create_mock_with_callbacks.rb ../esp-stub-lib/include/esp-stub-lib/md5.h
 
     print_status "Mock generation completed successfully!"
 }
