@@ -37,6 +37,11 @@ extern "C" {
 #define ESP_ERASE_REGION        0xD1
 #define ESP_READ_FLASH          0xD2
 #define ESP_RUN_USER_CODE       0xD3
+#define ESP_FLASH_ENCRYPT_DATA  0xD4
+// NAND flash commands (stub only)
+#define ESP_SPI_NAND_ATTACH     0xD5
+#define ESP_SPI_NAND_READ_SPARE 0xD6
+#define ESP_SPI_NAND_WRITE_SPARE 0xD7
 
 /**
  * @brief ESP command response codes (16-bit)
@@ -83,6 +88,10 @@ enum esp_response_code {
 #define READ_FLASH_SIZE             16
 #define ERASE_FLASH_SIZE            0
 #define ERASE_REGION_SIZE           8
+// NAND flash command sizes
+#define SPI_NAND_ATTACH_SIZE        4
+#define SPI_NAND_READ_SPARE_SIZE    4
+#define SPI_NAND_WRITE_SPARE_SIZE   5  // 4 bytes page_number + 1 byte is_bad
 
 #ifdef __cplusplus
 }

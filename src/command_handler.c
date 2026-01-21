@@ -19,6 +19,7 @@
 #include "commands.h"
 #include "command_handler.h"
 #include "endian_utils.h"
+#include "nand.h"
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
@@ -819,6 +820,73 @@ static int s_erase_region(const struct cmd_ctx *ctx)
 #undef ERASE_PER_SECTOR_TIMEOUT_US
 }
 
+static void s_spi_nand_attach(const uint8_t *buffer, uint16_t size)
+{
+    if (size != SPI_NAND_ATTACH_SIZE) {
+        s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_BAD_DATA_LEN, NULL);
+        return;
+    }
+
+    const uint32_t *params = (const uint32_t *)buffer;
+    uint32_t hspi_arg = params[0];
+
+    int result = nand_attach(hspi_arg);
+    if (result != 0) {
+        s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_FAILED_SPI_OP, NULL);
+        return;
+    }
+
+    s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_SUCCESS, NULL);
+}
+
+static void s_spi_nand_read_spare(const uint8_t *buffer, uint16_t size)
+{
+    if (size != SPI_NAND_READ_SPARE_SIZE) {
+        s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_BAD_DATA_LEN, NULL);
+        return;
+    }
+
+    const uint32_t *params = (const uint32_t *)buffer;
+    uint32_t page_number = params[0];
+
+    uint8_t spare_data[4] = {0}; // Read up to 4 bytes
+    int result = nand_read_spare(page_number, spare_data);
+    if (result != 0) {
+        s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_FAILED_SPI_OP, NULL);
+        return;
+    }
+
+    // Return spare data as value (first 4 bytes as uint32, little-endian)
+    uint32_t spare_value = spare_data[0] | (spare_data[1] << 8) |
+                           (spare_data[2] << 16) | (spare_data[3] << 24);
+    struct command_response_data response = {
+        .value = spare_value,
+        .data_size = 0
+    };
+    s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_SUCCESS, &response);
+}
+
+static void s_spi_nand_write_spare(const uint8_t *buffer, uint16_t size)
+{
+    // Expect 5 bytes: 4-byte page_number + 1-byte is_bad
+    if (size != 5) {
+        s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_BAD_DATA_LEN, NULL);
+        return;
+    }
+
+    // Parse: first 4 bytes = page_number (little-endian), last byte = is_bad
+    uint32_t page_number = buffer[0] | (buffer[1] << 8) | (buffer[2] << 16) | (buffer[3] << 24);
+    uint8_t is_bad = buffer[4];
+
+    int result = nand_write_spare(page_number, is_bad);
+    if (result != 0) {
+        s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_FAILED_SPI_OP, NULL);
+        return;
+    }
+
+    s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_SUCCESS, NULL);
+}
+
 void handle_command(const uint8_t *buffer, size_t size)
 {
     // Accumulates errors from previous post-process and current command
@@ -951,6 +1019,18 @@ void handle_command(const uint8_t *buffer, size_t size)
         TODO: Try to implement WDT reset to trigger system reset
         */
         return;  // No response needed
+
+    case ESP_SPI_NAND_ATTACH:
+        s_spi_nand_attach(data, packet_size);
+        break;
+
+    case ESP_SPI_NAND_READ_SPARE:
+        s_spi_nand_read_spare(data, packet_size);
+        break;
+
+    case ESP_SPI_NAND_WRITE_SPARE:
+        s_spi_nand_write_spare(data, packet_size);
+        break;
 
     default:
         accumulated_result = RESPONSE_INVALID_COMMAND;

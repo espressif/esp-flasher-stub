@@ -1,0 +1,2 @@
+- SPI2 is hardcoded in the code. This is true for non-ESP32 chips only. ESP32 has SPI3.
+- SPI pin connections are hardcoded. Need to be transferred from esptool.

@@ -3,6 +3,8 @@ add_executable(${TARGET_NAME}
     "slip.c"
     "command_handler.c"
     "transport.c"
+    "nand.c"
+    "spi2_nand.c"
 )
 
 target_link_options(${TARGET_NAME} PRIVATE
