@@ -21,11 +21,6 @@
 /*
  * Plugin command handler ABI.
  *
- * The handler fills *resp with the response payload and returns a status code
- * from enum esp_response_code (RESPONSE_SUCCESS == 0 on success).
- * The base dispatcher calls s_send_response() and runs any post-process step
- * after the handler returns.
- *
  * Parameters:
  *   command — opcode byte (passed for convenience; dispatcher already knows it)
  *   data    — pointer to the command payload
@@ -33,7 +28,15 @@
  *   resp    — output: response data to send back; guaranteed non-NULL (dispatcher
  *             zeroes the struct and passes its address before calling the handler)
  *
- * Return value: an esp_response_code value (0 = RESPONSE_SUCCESS).
+ * Return value (esp_response_code):
+ *   RESPONSE_SUCCESS (0): the handler has already sent its own SLIP response
+ *       (e.g. via plugin_send_response()).  The dispatcher does NOT call
+ *       s_send_response() — doing so would duplicate the frame.
+ *   Any non-success code: the dispatcher calls s_send_response() with the
+ *       returned code so the host always receives a response frame.  This is
+ *       the fallback used by s_plugin_unsupported (unpatched opcode) and is
+ *       available to any future handler that wants to reuse the base framing
+ *       path instead of building its own SLIP frame.
  */
 typedef int (*plugin_cmd_handler_t)(uint8_t command,
                                     const uint8_t *data,
