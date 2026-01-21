@@ -37,7 +37,7 @@ extern "C" {
 #define ESP_ERASE_REGION        0xD1
 #define ESP_READ_FLASH          0xD2
 #define ESP_RUN_USER_CODE       0xD3
-#define ESP_FLASH_ENCRYPT_DATA  0xD4  /* reserved — handler not yet implemented */
+#define ESP_FLASH_ENCRYPT_DATA  0xD4
 // NAND flash commands (stub only)
 #define ESP_SPI_NAND_ATTACH     0xD5
 #define ESP_SPI_NAND_READ_BBM   0xD6
@@ -48,6 +48,7 @@ extern "C" {
 #define ESP_SPI_NAND_ERASE_FLASH      0xDB
 #define ESP_SPI_NAND_ERASE_REGION     0xDC
 #define ESP_SPI_NAND_READ_PAGE_DEBUG 0xDD
+#define ESP_SPI_NAND_WRITE_FLASH_END 0xDE
 
 /**
  * @brief ESP command response codes (16-bit)
@@ -65,6 +66,8 @@ enum esp_response_code {
     RESPONSE_INFLATE_ERROR       = 0xC700,
     RESPONSE_NOT_ENOUGH_DATA     = 0xC800,
     RESPONSE_TOO_MUCH_DATA       = 0xC900,
+    RESPONSE_NAND_PROGRAM_FAILED = 0xCA00,
+    RESPONSE_NAND_ERASE_FAILED   = 0xCB00,
     RESPONSE_CMD_NOT_IMPLEMENTED = 0xFF00
 };
 
@@ -107,6 +110,8 @@ enum esp_response_code {
 #define SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE 16
 /* page_number (uint32_t LE) */
 #define SPI_NAND_READ_PAGE_DEBUG_SIZE 4
+/* reboot_flag (uint32_t LE) — mirrors FLASH_END_SIZE */
+#define SPI_NAND_WRITE_FLASH_END_SIZE 4
 
 #ifdef __cplusplus
 }

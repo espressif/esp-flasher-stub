@@ -10,6 +10,7 @@
 #include <esp-stub-lib/bit_utils.h>
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/flash.h>
+#include <target/flash.h>
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/security.h>
@@ -51,21 +52,18 @@ struct flash_operation_state {
     uint32_t erase_remaining;
 };
 
-/* Command context passed to handlers and post-process functions */
-struct cmd_ctx {
-    uint8_t command;
-    uint8_t direction;
-    uint16_t packet_size;
-    uint32_t checksum;
-    const uint8_t *data;
-};
-
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
 
 static void s_send_response(uint8_t command, int response_code, const struct command_response_data *response_data);
 
-/* Default plugin handler: returns RESPONSE_CMD_NOT_IMPLEMENTED */
+/*
+ * Default plugin handler for unpatched FPT slots.
+ *
+ * Returns RESPONSE_CMD_NOT_IMPLEMENTED (non-success) so the dispatcher falls
+ * back to s_send_response() and delivers an error frame to the host.
+ * See plugin_table.h for the full handler ABI contract.
+ */
 static int s_plugin_unsupported(uint8_t command,
                                 const uint8_t *data,
                                 uint32_t len,
@@ -972,6 +970,9 @@ void handle_command(const uint8_t *buffer, size_t size)
             int idx = command - PLUGIN_FIRST_OPCODE;
             memset(&response, 0, sizeof(response));
             accumulated_result = plugin_table[idx](command, data, packet_size, &response);
+            if (response.post_process) {
+                s_pending_post_process = response.post_process;
+            }
             break;
         }
         accumulated_result = RESPONSE_INVALID_COMMAND;
