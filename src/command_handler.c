@@ -10,6 +10,7 @@
 #include <esp-stub-lib/bit_utils.h>
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/flash.h>
+#include <target/flash.h>
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/security.h>
@@ -19,6 +20,7 @@
 #include "commands.h"
 #include "command_handler.h"
 #include "endian_utils.h"
+#include "nand.h"
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
@@ -69,6 +71,20 @@ struct command_response_data {
 
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
+
+/* NAND write operation state (excluded on esp8266 to save memory) */
+#define NAND_PAGE_SIZE 2048
+#define NAND_PAGES_PER_BLOCK 64
+#ifndef STUB_NAND_DISABLED
+static struct {
+    uint32_t offset;           /* current byte offset in flash */
+    uint32_t total_remaining;  /* bytes left to receive */
+    uint8_t page_buf[NAND_PAGE_SIZE] __attribute__((aligned(4)));
+    uint32_t page_buf_filled;
+    bool in_progress;
+} s_nand_write_state = {0};
+#endif
+
 static int (*s_pending_post_process)(const struct cmd_ctx *ctx) = NULL;
 
 static inline int s_validate_checksum(const uint8_t *data, uint32_t size, uint32_t expected)
@@ -137,7 +153,7 @@ static inline int s_ensure_flash_erased_to(uint32_t target_addr)
 {
     while (s_flash_state.next_erase_addr < target_addr) {
         int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
-                                                     &s_flash_state.erase_remaining);
+                                                     &s_flash_state.erase_remaining, 1000000);
         if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
             return RESPONSE_FAILED_SPI_OP;
         }
@@ -176,7 +192,7 @@ static int s_init_flash_operation(const uint8_t *buffer, uint16_t size, bool is_
 
     // Start the next erase operation, but do not wait for it to complete
     int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
-                                                 &s_flash_state.erase_remaining);
+                                                 &s_flash_state.erase_remaining, 1000000);
     if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
         return RESPONSE_FAILED_SPI_OP;
     }
@@ -264,7 +280,7 @@ static int s_flash_defl_data_post_process(const struct cmd_ctx *ctx)
 
         /* Start opportunistic erase during decompression */
         int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
-                                                     &s_flash_state.erase_remaining);
+                                                     &s_flash_state.erase_remaining, 1000000);
         if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
             return RESPONSE_FAILED_SPI_OP;
         }
@@ -690,6 +706,91 @@ static int s_get_security_info(const struct cmd_ctx *ctx, uint8_t *security_info
     }
 }
 
+#ifndef STUB_NAND_DISABLED
+static int s_spi_nand_read_flash_post_process(const struct cmd_ctx *ctx)
+{
+    const uint8_t *ptr = ctx->data;
+    uint32_t offset = get_le_to_u32(ptr);
+    ptr += sizeof(offset);
+    uint32_t read_size = get_le_to_u32(ptr);
+    ptr += sizeof(read_size);
+    uint32_t packet_size = get_le_to_u32(ptr);
+    uint32_t max_unacked_packets = 1;
+
+    uint32_t page_size = nand_get_page_size();
+    if (page_size == 0) {
+        return RESPONSE_FAILED_SPI_OP;
+    }
+
+    // page_buf holds one full NAND page; send_buf accumulates the packet to send
+    static uint8_t page_buf[2048] __attribute__((aligned(4)));
+    static uint8_t send_buf[4096] __attribute__((aligned(4)));
+
+    if (packet_size > sizeof(send_buf)) {
+        return RESPONSE_BAD_DATA_LEN;
+    }
+
+    slip_recv_reset();
+
+    uint32_t read_size_remaining = read_size;
+    uint32_t sent_packets = 0;
+    uint32_t acked_data_size = 0;
+    uint32_t acked_packets = 0;
+    uint32_t current_offset = offset;
+
+    struct stub_lib_md5_ctx md5_ctx;
+    stub_lib_md5_init(&md5_ctx);
+
+    while (read_size_remaining > 0 || acked_data_size < read_size) {
+        if (slip_is_frame_complete()) {
+            size_t slip_size;
+            const uint8_t *slip_data = slip_get_frame_data(&slip_size);
+            if (slip_size != sizeof(acked_data_size)) {
+                break;
+            }
+            memcpy(&acked_data_size, slip_data, sizeof(acked_data_size));
+            acked_packets++;
+            slip_recv_reset();
+        }
+
+        if (read_size_remaining > 0 && sent_packets - acked_packets < max_unacked_packets) {
+            uint32_t actual_read_size = read_size_remaining;
+            if (actual_read_size > packet_size) {
+                actual_read_size = packet_size;
+            }
+
+            uint32_t bytes_filled = 0;
+            while (bytes_filled < actual_read_size) {
+                uint32_t page_number = current_offset / page_size;
+                uint32_t page_offset = current_offset % page_size;
+                uint32_t avail_in_page = page_size - page_offset;
+                uint32_t needed = actual_read_size - bytes_filled;
+                uint32_t chunk = (avail_in_page < needed) ? avail_in_page : needed;
+
+                if (nand_read_page(page_number, page_buf, page_size) != 0) {
+                    return RESPONSE_FAILED_SPI_OP;
+                }
+
+                memcpy(send_buf + bytes_filled, page_buf + page_offset, chunk);
+                bytes_filled += chunk;
+                current_offset += chunk;
+            }
+
+            stub_lib_md5_update(&md5_ctx, send_buf, actual_read_size);
+            slip_send_frame(send_buf, actual_read_size);
+            read_size_remaining -= actual_read_size;
+            sent_packets++;
+        }
+    }
+
+    uint8_t md5[16];
+    stub_lib_md5_final(&md5_ctx, md5);
+    slip_send_frame(md5, sizeof(md5));
+
+    return RESPONSE_SUCCESS;
+}
+#endif /* !STUB_NAND_DISABLED */
+
 static int s_read_flash_post_process(const struct cmd_ctx *ctx)
 {
     const uint8_t *ptr = ctx->data;
@@ -807,7 +908,8 @@ static int s_erase_region(const struct cmd_ctx *ctx)
     }
 
     while (erase_size > 0 && timeout_us > 0) {
-        stub_lib_flash_start_next_erase(&addr, &erase_size);
+        uint32_t wait_us = (timeout_us > 1000000) ? 1000000 : (uint32_t)timeout_us;
+        stub_lib_flash_start_next_erase(&addr, &erase_size, wait_us);
         stub_lib_delay_us(1);
         --timeout_us;
     }
@@ -818,6 +920,292 @@ static int s_erase_region(const struct cmd_ctx *ctx)
     return RESPONSE_SUCCESS;
 #undef ERASE_PER_SECTOR_TIMEOUT_US
 }
+
+#ifndef STUB_NAND_DISABLED
+#define NAND_BLOCK_SIZE (NAND_PAGE_SIZE * NAND_PAGES_PER_BLOCK)
+#define NAND_BLOCK_COUNT 1024
+
+static int s_spi_nand_erase_flash(const struct cmd_ctx *ctx)
+{
+    (void)ctx;
+    for (uint32_t block = 0; block < NAND_BLOCK_COUNT; block++) {
+        if (nand_erase_block(block * NAND_PAGES_PER_BLOCK) != 0) {
+            return RESPONSE_FAILED_SPI_OP;
+        }
+    }
+    return RESPONSE_SUCCESS;
+}
+
+static int s_spi_nand_erase_region(const struct cmd_ctx *ctx)
+{
+    if (ctx->packet_size != ERASE_REGION_SIZE) {
+        return RESPONSE_BAD_DATA_LEN;
+    }
+
+    const uint8_t *ptr = ctx->data;
+    uint32_t offset = get_le_to_u32(ptr);
+    ptr += sizeof(offset);
+    uint32_t size = get_le_to_u32(ptr);
+
+    if (offset % NAND_BLOCK_SIZE != 0 || size % NAND_BLOCK_SIZE != 0) {
+        return RESPONSE_BAD_DATA_LEN;
+    }
+
+    uint32_t start_page = offset / NAND_PAGE_SIZE;
+    uint32_t num_blocks = size / NAND_BLOCK_SIZE;
+
+    for (uint32_t i = 0; i < num_blocks; i++) {
+        if (nand_erase_block(start_page + i * NAND_PAGES_PER_BLOCK) != 0) {
+            return RESPONSE_FAILED_SPI_OP;
+        }
+    }
+    return RESPONSE_SUCCESS;
+}
+
+static void s_spi_nand_attach(const uint8_t *buffer, uint16_t size)
+{
+    if (size != SPI_NAND_ATTACH_SIZE) {
+        s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_BAD_DATA_LEN, NULL);
+        return;
+    }
+
+    const uint32_t *params = (const uint32_t *)buffer;
+    uint32_t hspi_arg = params[0];
+
+    int result = nand_attach(hspi_arg);
+    if (result != 0) {
+        struct command_response_data response = {
+            .value = (uint32_t)result,
+            .data_size = 0
+        };
+        s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_FAILED_SPI_OP, &response);
+        return;
+    }
+
+    const uint8_t *dbg_id = nand_get_debug_id();
+    const uint8_t *dbg_extra = nand_get_debug_extra();
+    // Pack: val=[status_reg, mfr, dev_hi, dev_lo], data=[prot_reg after clear]
+    struct command_response_data response = {
+        .value = ((uint32_t)dbg_extra[0] << 24) | ((uint32_t)dbg_id[0] << 16) |
+                 ((uint32_t)dbg_id[1] << 8) | dbg_id[2],
+        .data_size = 1,
+        .data = { dbg_extra[1] }
+    };
+    s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_SUCCESS, &response);
+}
+
+static void s_spi_nand_read_spare(const uint8_t *buffer, uint16_t size)
+{
+    if (size != SPI_NAND_READ_SPARE_SIZE) {
+        s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_BAD_DATA_LEN, NULL);
+        return;
+    }
+
+    const uint32_t *params = (const uint32_t *)buffer;
+    uint32_t page_number = params[0];
+
+    uint8_t spare_data[4] = {0}; // Read up to 4 bytes
+    int result = nand_read_spare(page_number, spare_data);
+    if (result != 0) {
+        s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_FAILED_SPI_OP, NULL);
+        return;
+    }
+
+    // Return spare data as value (first 4 bytes as uint32, little-endian)
+    uint32_t spare_value = (uint32_t)spare_data[0] | ((uint32_t)spare_data[1] << 8) |
+                           ((uint32_t)spare_data[2] << 16) | ((uint32_t)spare_data[3] << 24);
+    struct command_response_data response = {
+        .value = spare_value,
+        .data_size = 0
+    };
+    s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_SUCCESS, &response);
+}
+
+static int s_spi_nand_read_flash(const struct cmd_ctx *ctx)
+{
+    if (ctx->packet_size != SPI_NAND_READ_FLASH_SIZE) {
+        return RESPONSE_BAD_DATA_LEN;
+    }
+    s_pending_post_process = s_spi_nand_read_flash_post_process;
+    return RESPONSE_SUCCESS;
+}
+
+static void s_spi_nand_read_page_debug(const uint8_t *buffer, uint16_t size)
+{
+    if (size != SPI_NAND_READ_PAGE_DEBUG_SIZE) {
+        s_send_response(ESP_SPI_NAND_READ_PAGE_DEBUG, RESPONSE_BAD_DATA_LEN, NULL);
+        return;
+    }
+
+    uint32_t page_number = get_le_to_u32(buffer);
+    static uint8_t page_buf[2048] __attribute__((aligned(4)));
+    const uint32_t page_size = nand_get_page_size();
+    if (page_size == 0) {
+        s_send_response(ESP_SPI_NAND_READ_PAGE_DEBUG, RESPONSE_FAILED_SPI_OP, NULL);
+        return;
+    }
+
+    int result = nand_read_page(page_number, page_buf, page_size);
+    if (result != 0) {
+        s_send_response(ESP_SPI_NAND_READ_PAGE_DEBUG, RESPONSE_FAILED_SPI_OP, NULL);
+        return;
+    }
+
+    const uint16_t debug_bytes = 16;
+    struct command_response_data response = {
+        .value = page_number,
+        .data_size = debug_bytes
+    };
+    memcpy(response.data, page_buf, debug_bytes);
+    s_send_response(ESP_SPI_NAND_READ_PAGE_DEBUG, RESPONSE_SUCCESS, &response);
+}
+
+static void s_spi_nand_write_spare(const uint8_t *buffer, uint16_t size)
+{
+    // Expect 5 bytes: 4-byte page_number + 1-byte is_bad
+    if (size != 5) {
+        s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_BAD_DATA_LEN, NULL);
+        return;
+    }
+
+    // Parse: first 4 bytes = page_number (little-endian), last byte = is_bad
+    uint32_t page_number = (uint32_t)buffer[0] | ((uint32_t)buffer[1] << 8) |
+                           ((uint32_t)buffer[2] << 16) | ((uint32_t)buffer[3] << 24);
+    uint8_t is_bad = buffer[4];
+
+    int result = nand_write_spare(page_number, is_bad);
+    if (result != 0) {
+        s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_FAILED_SPI_OP, NULL);
+        return;
+    }
+
+    s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_SUCCESS, NULL);
+}
+
+static int s_check_nand_write_in_progress(void)
+{
+    if (!s_nand_write_state.in_progress) {
+        return RESPONSE_NOT_IN_FLASH_MODE;
+    }
+    return RESPONSE_SUCCESS;
+}
+
+/* Flush one full page from s_nand_write_state.page_buf to NAND. Erase block if needed. */
+static int s_nand_write_flush_page(void)
+{
+    uint32_t page_number = s_nand_write_state.offset / NAND_PAGE_SIZE;
+    if (page_number % NAND_PAGES_PER_BLOCK == 0) {
+        int ret = nand_erase_block(page_number);
+        if (ret != 0) {
+            return RESPONSE_FAILED_SPI_OP;
+        }
+    }
+    if (nand_write_page(page_number, s_nand_write_state.page_buf) != 0) {
+        return RESPONSE_FAILED_SPI_OP;
+    }
+    s_nand_write_state.offset += NAND_PAGE_SIZE;
+    s_nand_write_state.page_buf_filled = 0;
+    return RESPONSE_SUCCESS;
+}
+
+static int s_spi_nand_write_flash_begin(const struct cmd_ctx *ctx)
+{
+    if (ctx->packet_size != SPI_NAND_WRITE_FLASH_BEGIN_SIZE) {
+        return RESPONSE_BAD_DATA_LEN;
+    }
+
+    const uint8_t *ptr = ctx->data;
+    uint32_t offset = get_le_to_u32(ptr);
+    ptr += sizeof(offset);
+    uint32_t total_size = get_le_to_u32(ptr);
+    ptr += sizeof(total_size);
+    (void)get_le_to_u32(ptr);  /* block_size - use fixed NAND_PAGE_SIZE * NAND_PAGES_PER_BLOCK */
+    ptr += sizeof(uint32_t);
+    (void)get_le_to_u32(ptr);  /* packet_size */
+
+    s_nand_write_state.offset = offset;
+    s_nand_write_state.total_remaining = total_size;
+    s_nand_write_state.page_buf_filled = 0;
+    s_nand_write_state.in_progress = true;
+
+    return RESPONSE_SUCCESS;
+}
+
+static int s_spi_nand_write_flash_data_post_process(const struct cmd_ctx *ctx)
+{
+    const uint8_t *flash_data = ctx->data + SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE;
+    const uint16_t actual_data_size = (uint16_t)(ctx->packet_size - SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE);
+    uint32_t to_process = MIN(actual_data_size, s_nand_write_state.total_remaining);
+    const uint8_t *src = flash_data;
+
+    while (to_process > 0) {
+        uint32_t space_in_page = NAND_PAGE_SIZE - s_nand_write_state.page_buf_filled;
+        uint32_t chunk = (to_process < space_in_page) ? to_process : space_in_page;
+
+        memcpy(s_nand_write_state.page_buf + s_nand_write_state.page_buf_filled, src, chunk);
+        s_nand_write_state.page_buf_filled += chunk;
+        s_nand_write_state.total_remaining -= chunk;
+        src += chunk;
+        to_process -= chunk;
+
+        if (s_nand_write_state.page_buf_filled >= NAND_PAGE_SIZE) {
+            int ret = s_nand_write_flush_page();
+            if (ret != RESPONSE_SUCCESS) {
+                return ret;
+            }
+        }
+    }
+
+    /* Last partial page: pad with 0xFF and write when we're done receiving */
+    if (s_nand_write_state.total_remaining == 0 && s_nand_write_state.page_buf_filled > 0) {
+        memset(s_nand_write_state.page_buf + s_nand_write_state.page_buf_filled, 0xFF,
+               NAND_PAGE_SIZE - s_nand_write_state.page_buf_filled);
+        s_nand_write_state.page_buf_filled = NAND_PAGE_SIZE;
+        int ret = s_nand_write_flush_page();
+        if (ret != RESPONSE_SUCCESS) {
+            return ret;
+        }
+    }
+
+    if (s_nand_write_state.total_remaining == 0) {
+        s_nand_write_state.in_progress = false;
+    }
+
+    return RESPONSE_SUCCESS;
+}
+
+static int s_spi_nand_write_flash_data(const struct cmd_ctx *ctx)
+{
+    if (ctx->packet_size < SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE) {
+        return RESPONSE_NOT_ENOUGH_DATA;
+    }
+
+    int check = s_check_nand_write_in_progress();
+    if (check != RESPONSE_SUCCESS) {
+        return check;
+    }
+
+    uint32_t data_len = get_le_to_u32(ctx->data);
+    const uint8_t *flash_data = ctx->data + SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE;
+    const uint16_t actual_data_size = (uint16_t)(ctx->packet_size - SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE);
+
+    if (data_len != actual_data_size) {
+        return RESPONSE_TOO_MUCH_DATA;
+    }
+
+    if (actual_data_size > s_nand_write_state.total_remaining) {
+        return RESPONSE_TOO_MUCH_DATA;
+    }
+
+    int checksum_result = s_validate_checksum(flash_data, actual_data_size, ctx->checksum);
+    if (checksum_result != RESPONSE_SUCCESS) {
+        return checksum_result;
+    }
+
+    s_pending_post_process = s_spi_nand_write_flash_data_post_process;
+    return RESPONSE_SUCCESS;
+}
+#endif /* !STUB_NAND_DISABLED */
 
 void handle_command(const uint8_t *buffer, size_t size)
 {
@@ -951,6 +1339,82 @@ void handle_command(const uint8_t *buffer, size_t size)
         TODO: Try to implement WDT reset to trigger system reset
         */
         return;  // No response needed
+
+    case ESP_SPI_NAND_ATTACH:
+#ifndef STUB_NAND_DISABLED
+        s_spi_nand_attach(data, packet_size);
+#else
+        s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_INVALID_COMMAND, NULL);
+        return;
+#endif
+        break;
+
+    case ESP_SPI_NAND_READ_SPARE:
+#ifndef STUB_NAND_DISABLED
+        s_spi_nand_read_spare(data, packet_size);
+#else
+        s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_INVALID_COMMAND, NULL);
+        return;
+#endif
+        break;
+
+    case ESP_SPI_NAND_WRITE_SPARE:
+#ifndef STUB_NAND_DISABLED
+        s_spi_nand_write_spare(data, packet_size);
+#else
+        s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_INVALID_COMMAND, NULL);
+        return;
+#endif
+        break;
+
+    case ESP_SPI_NAND_READ_FLASH:
+#ifndef STUB_NAND_DISABLED
+        accumulated_result = s_spi_nand_read_flash(&ctx);
+#else
+        accumulated_result = RESPONSE_INVALID_COMMAND;
+#endif
+        break;
+
+    case ESP_SPI_NAND_WRITE_FLASH_BEGIN:
+#ifndef STUB_NAND_DISABLED
+        accumulated_result = s_spi_nand_write_flash_begin(&ctx);
+#else
+        accumulated_result = RESPONSE_INVALID_COMMAND;
+#endif
+        break;
+
+    case ESP_SPI_NAND_WRITE_FLASH_DATA:
+#ifndef STUB_NAND_DISABLED
+        accumulated_result = s_spi_nand_write_flash_data(&ctx);
+#else
+        accumulated_result = RESPONSE_INVALID_COMMAND;
+#endif
+        break;
+
+    case ESP_SPI_NAND_ERASE_FLASH:
+#ifndef STUB_NAND_DISABLED
+        accumulated_result = s_spi_nand_erase_flash(&ctx);
+#else
+        accumulated_result = RESPONSE_INVALID_COMMAND;
+#endif
+        break;
+
+    case ESP_SPI_NAND_ERASE_REGION:
+#ifndef STUB_NAND_DISABLED
+        accumulated_result = s_spi_nand_erase_region(&ctx);
+#else
+        accumulated_result = RESPONSE_INVALID_COMMAND;
+#endif
+        break;
+
+    case ESP_SPI_NAND_READ_PAGE_DEBUG:
+#ifndef STUB_NAND_DISABLED
+        s_spi_nand_read_page_debug(data, packet_size);
+#else
+        s_send_response(ESP_SPI_NAND_READ_PAGE_DEBUG, RESPONSE_INVALID_COMMAND, NULL);
+        return;
+#endif
+        break;
 
     default:
         accumulated_result = RESPONSE_INVALID_COMMAND;

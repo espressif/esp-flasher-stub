@@ -5,6 +5,11 @@ add_executable(${TARGET_NAME}
     "transport.c"
 )
 
+# Exclude NAND command handlers and buffers for esp8266 only (saves IRAM/DRAM)
+if(TARGET_CHIP STREQUAL "esp8266")
+    target_compile_definitions(${TARGET_NAME} PRIVATE STUB_NAND_DISABLED=1)
+endif()
+
 target_link_options(${TARGET_NAME} PRIVATE
     -L${LINKER_SCRIPTS_DIR}
     "-T${CHIP_LINKER_SCRIPT}"
