@@ -356,9 +356,8 @@ static void s_spi_attach(const uint8_t *buffer, uint16_t size)
     }
     const uint32_t *params = (const uint32_t *)buffer;
     uint32_t ishspi = params[0];
-    bool legacy = params[1];
 
-    stub_lib_flash_attach(ishspi, legacy);
+    stub_lib_flash_attach(ishspi, 0);
     s_send_success_response(ESP_SPI_ATTACH, 0, NULL, 0);
 }
 
