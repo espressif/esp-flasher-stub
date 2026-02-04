@@ -43,8 +43,6 @@ struct flash_operation_state {
     uint32_t erase_remaining;
 };
 
-#define ADLER32_CHECKSUM_SIZE 4
-
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
 
@@ -358,9 +356,8 @@ static void s_spi_attach(const uint8_t *buffer, uint16_t size)
     }
     const uint32_t *params = (const uint32_t *)buffer;
     uint32_t ishspi = params[0];
-    bool legacy = params[1];
 
-    stub_lib_flash_attach(ishspi, legacy);
+    stub_lib_flash_attach(ishspi, 0);
     s_send_success_response(ESP_SPI_ATTACH, 0, NULL, 0);
 }
 
@@ -412,7 +409,7 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
     }
 
     const uint32_t *params = (const uint32_t *)buffer;
-    s_flash_state.total_remaining = params[0] + ADLER32_CHECKSUM_SIZE;
+    s_flash_state.total_remaining = params[0];
     s_flash_state.num_blocks = params[1];
     s_flash_state.block_size = params[2];
     s_flash_state.offset = params[3];
@@ -444,6 +441,8 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
 
 static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t packet_checksum)
 {
+#define ADLER32_CHECKSUM_SIZE 4
+
     if (size < FLASH_DEFL_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_LEN);
         return;
@@ -451,6 +450,13 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
 
     if (!s_flash_state.in_progress) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_NOT_IN_FLASH_MODE);
+        return;
+    }
+
+    // If all expected data has already been decompressed and written,
+    // only accept the checksum if it is part of the data.
+    if (s_flash_state.total_remaining == 0 && size > ADLER32_CHECKSUM_SIZE) {
+        s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_TOO_MUCH_DATA);
         return;
     }
 
@@ -521,11 +527,12 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
                 s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
                 return;
             }
-            s_flash_state.offset += (uint16_t)(decompressed_data_ptr - decompressed_data);
-            s_flash_state.total_remaining -= (uint16_t)(decompressed_data_ptr - decompressed_data);
+            s_flash_state.offset += write_data_size;
+            s_flash_state.total_remaining -= write_data_size;
             decompressed_data_ptr = decompressed_data;
         }
     }
+#undef ADLER32_CHECKSUM_SIZE
 }
 
 static void s_flash_defl_end(const uint8_t *buffer, uint16_t size)
@@ -540,7 +547,7 @@ static void s_flash_defl_end(const uint8_t *buffer, uint16_t size)
         return;
     }
 
-    if (s_flash_state.total_remaining != ADLER32_CHECKSUM_SIZE) {
+    if (s_flash_state.total_remaining != 0) {
         s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_BAD_DATA_LEN);
         return;
     }
@@ -651,9 +658,8 @@ static void s_read_flash(const uint8_t *buffer, uint16_t size)
     uint32_t packet_size = params[2];
     // Packet contains max in-flight packets, which esptool and other tools set to 64 or higher,
     // but old stub interpreted this always as 1 due to a bug. When interpreted correctly, esptool
-    // cannot handle the data flow due to the implementation. Setting it to 2 to avoid possible issues,
-    // while still slightly benefitting from the increased throughput.
-    uint32_t max_unacked_packets = 2;
+    // cannot handle the data flow due to the implementation. Setting it to 1 to avoid possible issues.
+    uint32_t max_unacked_packets = 1;
 
     uint8_t data[4102] __attribute__((aligned(4)));
     uint32_t read_size_remaining = read_size;
@@ -725,6 +731,9 @@ static void s_erase_flash(void)
 
 static void s_erase_region(const uint8_t *buffer, uint16_t size)
 {
+    // Timeout values for flash operations, inspired by esptool
+#define ERASE_PER_SECTOR_TIMEOUT_US 120000U
+
     if (size != ERASE_REGION_SIZE) {
         s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
@@ -734,16 +743,24 @@ static void s_erase_region(const uint8_t *buffer, uint16_t size)
     uint32_t addr = params[0];
     uint32_t erase_size = params[1];
 
+    uint64_t timeout_us = (erase_size + STUB_FLASH_SECTOR_SIZE - 1) / STUB_FLASH_SECTOR_SIZE * ERASE_PER_SECTOR_TIMEOUT_US;
+
     if (addr % STUB_FLASH_SECTOR_SIZE || erase_size % STUB_FLASH_SECTOR_SIZE) {
         s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    while (erase_size > 0) {
+    while (erase_size > 0 && timeout_us > 0) {
         stub_lib_flash_start_next_erase(&addr, &erase_size);
+        stub_lib_delay_us(1);
+        --timeout_us;
     }
-
+    if (stub_lib_flash_wait_ready(timeout_us) != STUB_LIB_OK) {
+        s_send_error_response(ESP_ERASE_REGION, RESPONSE_FAILED_SPI_OP);
+        return;
+    }
     s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
+#undef ERASE_PER_SECTOR_TIMEOUT_US
 }
 
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,

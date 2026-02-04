@@ -26,15 +26,15 @@ typedef enum {
 
 typedef struct {
     uint8_t buffer[MAX_COMMAND_SIZE] __attribute__((aligned(4)));
-    size_t frame_length;
-    bool frame_complete;
-    bool frame_error;
+    volatile size_t frame_length;
+    volatile bool frame_complete;
+    volatile bool frame_error;
 } slip_buffer_t;
 
 static slip_buffer_t s_buffers[SLIP_NUM_BUFFERS];
-static uint8_t s_receiving_buffer = 0;
-static uint8_t s_processing_buffer = 0;
-static slip_state_t s_state = STATE_NO_FRAME;
+static volatile uint8_t s_receiving_buffer = 0;
+static volatile uint8_t s_processing_buffer = 0;
+static volatile slip_state_t s_state = STATE_NO_FRAME;
 
 /* TX function pointer set by transport init (defaults to UART) */
 static uint8_t (*s_tx_one_char)(uint8_t) = stub_lib_uart_tx_one_char;
