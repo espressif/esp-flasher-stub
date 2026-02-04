@@ -731,6 +731,9 @@ static void s_erase_flash(void)
 
 static void s_erase_region(const uint8_t *buffer, uint16_t size)
 {
+    // Timeout values for flash operations, inspired by esptool
+#define ERASE_PER_SECTOR_TIMEOUT_US 120000U
+
     if (size != ERASE_REGION_SIZE) {
         s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
@@ -740,16 +743,24 @@ static void s_erase_region(const uint8_t *buffer, uint16_t size)
     uint32_t addr = params[0];
     uint32_t erase_size = params[1];
 
+    uint64_t timeout_us = (erase_size + STUB_FLASH_SECTOR_SIZE - 1) / STUB_FLASH_SECTOR_SIZE * ERASE_PER_SECTOR_TIMEOUT_US;
+
     if (addr % STUB_FLASH_SECTOR_SIZE || erase_size % STUB_FLASH_SECTOR_SIZE) {
         s_send_error_response(ESP_ERASE_REGION, RESPONSE_BAD_DATA_LEN);
         return;
     }
 
-    while (erase_size > 0) {
+    while (erase_size > 0 && timeout_us > 0) {
         stub_lib_flash_start_next_erase(&addr, &erase_size);
+        stub_lib_delay_us(1);
+        --timeout_us;
     }
-
+    if (stub_lib_flash_wait_ready(timeout_us) != STUB_LIB_OK) {
+        s_send_error_response(ESP_ERASE_REGION, RESPONSE_FAILED_SPI_OP);
+        return;
+    }
     s_send_success_response(ESP_ERASE_REGION, 0, NULL, 0);
+#undef ERASE_PER_SECTOR_TIMEOUT_US
 }
 
 static void s_send_response_packet(uint8_t command, uint32_t value, uint8_t *data, uint16_t data_size,
