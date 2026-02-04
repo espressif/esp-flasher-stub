@@ -658,9 +658,8 @@ static void s_read_flash(const uint8_t *buffer, uint16_t size)
     uint32_t packet_size = params[2];
     // Packet contains max in-flight packets, which esptool and other tools set to 64 or higher,
     // but old stub interpreted this always as 1 due to a bug. When interpreted correctly, esptool
-    // cannot handle the data flow due to the implementation. Setting it to 2 to avoid possible issues,
-    // while still slightly benefitting from the increased throughput.
-    uint32_t max_unacked_packets = 2;
+    // cannot handle the data flow due to the implementation. Setting it to 1 to avoid possible issues.
+    uint32_t max_unacked_packets = 1;
 
     uint8_t data[4102] __attribute__((aligned(4)));
     uint32_t read_size_remaining = read_size;
