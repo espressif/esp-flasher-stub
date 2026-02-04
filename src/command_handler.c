@@ -43,8 +43,6 @@ struct flash_operation_state {
     uint32_t erase_remaining;
 };
 
-#define ADLER32_CHECKSUM_SIZE 4
-
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
 
@@ -412,7 +410,7 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
     }
 
     const uint32_t *params = (const uint32_t *)buffer;
-    s_flash_state.total_remaining = params[0] + ADLER32_CHECKSUM_SIZE;
+    s_flash_state.total_remaining = params[0];
     s_flash_state.num_blocks = params[1];
     s_flash_state.block_size = params[2];
     s_flash_state.offset = params[3];
@@ -444,6 +442,8 @@ static void s_flash_defl_begin(const uint8_t *buffer, uint16_t size)
 
 static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t packet_checksum)
 {
+#define ADLER32_CHECKSUM_SIZE 4
+
     if (size < FLASH_DEFL_DATA_HEADER_SIZE) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_BAD_DATA_LEN);
         return;
@@ -451,6 +451,13 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
 
     if (!s_flash_state.in_progress) {
         s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_NOT_IN_FLASH_MODE);
+        return;
+    }
+
+    // If all expected data has already been decompressed and written,
+    // only accept the checksum if it is part of the data.
+    if (s_flash_state.total_remaining == 0 && size > ADLER32_CHECKSUM_SIZE) {
+        s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_TOO_MUCH_DATA);
         return;
     }
 
@@ -521,11 +528,12 @@ static void s_flash_defl_data(const uint8_t *buffer, uint16_t size, uint32_t pac
                 s_send_error_response(ESP_FLASH_DEFL_DATA, RESPONSE_FAILED_SPI_OP);
                 return;
             }
-            s_flash_state.offset += (uint16_t)(decompressed_data_ptr - decompressed_data);
-            s_flash_state.total_remaining -= (uint16_t)(decompressed_data_ptr - decompressed_data);
+            s_flash_state.offset += write_data_size;
+            s_flash_state.total_remaining -= write_data_size;
             decompressed_data_ptr = decompressed_data;
         }
     }
+#undef ADLER32_CHECKSUM_SIZE
 }
 
 static void s_flash_defl_end(const uint8_t *buffer, uint16_t size)
@@ -540,7 +548,7 @@ static void s_flash_defl_end(const uint8_t *buffer, uint16_t size)
         return;
     }
 
-    if (s_flash_state.total_remaining != ADLER32_CHECKSUM_SIZE) {
+    if (s_flash_state.total_remaining != 0) {
         s_send_error_response(ESP_FLASH_DEFL_END, RESPONSE_BAD_DATA_LEN);
         return;
     }
