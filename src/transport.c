@@ -27,11 +27,6 @@ void uart_rx_interrupt_handler()
         for (uint32_t i = 0; i < count; ++i) {
             uint8_t byte = stub_lib_uart_read_rxfifo_byte(UART_NUM_0);
             slip_recv_byte(byte);
-
-            // Cannot process more bytes until frame is processed
-            if (slip_is_frame_complete() || slip_is_frame_error()) {
-                break;
-            }
         }
     }
 }
