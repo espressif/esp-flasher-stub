@@ -34,7 +34,7 @@ void esp_main(void)
         *p = 0;
     }
 
-    const stub_transport_type_t transport = stub_transport_detect();
+    const int transport = stub_transport_detect();
 
     // stub_lib_clock_init() increases CPU frequency which benefits both USB and UART transfers.
     // Currently only enabled for USB transfers due to concerns about instability (observed on ESP32-S3),
@@ -54,7 +54,7 @@ void esp_main(void)
     slip_send_frame(&greeting, sizeof(greeting));
 
     for (;;) {
-        slip_frame_state_t frame_state = slip_get_frame_state();
+        int frame_state = slip_get_frame_state();
         if (frame_state == SLIP_STATE_COMPLETE) {
             size_t frame_length;
             const uint8_t *frame_data = slip_get_frame_data(&frame_length);

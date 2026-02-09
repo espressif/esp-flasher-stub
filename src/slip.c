@@ -18,23 +18,23 @@
 #define SLIP_NUM_BUFFERS 2
 
 /* SLIP State Machine */
-typedef enum {
+enum slip_state {
     STATE_NO_FRAME,          /* Not in a frame */
     STATE_IN_FRAME,          /* Processing frame data */
     STATE_ESCAPING           /* Processing escape sequence */
-} slip_state_t;
+};
 
-typedef struct {
+struct slip_buffer {
     uint8_t buffer[MAX_COMMAND_SIZE] __attribute__((aligned(4)));
     volatile size_t frame_length;
     volatile bool frame_complete;
     volatile bool frame_error;
-} slip_buffer_t;
+};
 
-static slip_buffer_t s_buffers[SLIP_NUM_BUFFERS];
+static struct slip_buffer s_buffers[SLIP_NUM_BUFFERS];
 static volatile uint8_t s_receiving_buffer = 0;
 static volatile uint8_t s_processing_buffer = 0;
-static volatile slip_state_t s_state = STATE_NO_FRAME;
+static volatile enum slip_state s_state = STATE_NO_FRAME;
 
 /* TX function pointer set by transport init (defaults to UART) */
 static uint8_t (*s_tx_one_char)(uint8_t) = stub_lib_uart_tx_one_char;
@@ -93,7 +93,7 @@ void slip_send_frame(const void *data, size_t size)
 
 void slip_recv_byte(uint8_t byte)
 {
-    slip_buffer_t *rx_buf = &s_buffers[s_receiving_buffer];
+    struct slip_buffer *rx_buf = &s_buffers[s_receiving_buffer];
 
     /* If current buffer is full, switch to next available buffer */
     if (rx_buf->frame_complete || rx_buf->frame_error) {
@@ -179,7 +179,7 @@ bool slip_is_frame_error(void)
     return s_buffers[s_processing_buffer].frame_error;
 }
 
-slip_frame_state_t slip_get_frame_state(void)
+int slip_get_frame_state(void)
 {
     /* Check all buffers for complete or error frames */
     for (uint8_t i = 0; i < SLIP_NUM_BUFFERS; i++) {

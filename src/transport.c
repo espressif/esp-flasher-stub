@@ -40,7 +40,7 @@ void usb_serial_jtag_rx_interrupt_handler()
     }
 }
 
-stub_transport_type_t stub_transport_detect(void)
+int stub_transport_detect(void)
 {
     if (stub_lib_usb_otg_is_active()) {
         return STUB_TRANSPORT_USB_OTG;
@@ -75,7 +75,7 @@ uint8_t usb_otg_tx_one_char(uint8_t c)
     return 0;
 }
 
-void stub_transport_init(stub_transport_type_t transport)
+void stub_transport_init(int transport)
 {
     switch (transport) {
     case STUB_TRANSPORT_USB_OTG:

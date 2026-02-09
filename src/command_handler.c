@@ -51,29 +51,26 @@ struct flash_operation_state {
 };
 
 /* Command context passed to handlers and post-process functions */
-typedef struct {
+struct cmd_ctx {
     uint8_t command;
     uint8_t direction;
     uint16_t packet_size;
     uint32_t checksum;
     const uint8_t *data;
-} cmd_ctx_t;
+};
 
 /* Response data for commands that return data */
-typedef struct {
+struct command_response_data {
     uint32_t value;
     uint8_t data[MAX_RESPONSE_DATA_SIZE];
     uint16_t data_size;
-} command_response_data_t;
-
-/* Post-process function pointer */
-typedef esp_response_code_t (*post_process_fn_t)(const cmd_ctx_t *ctx);
+};
 
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
-static post_process_fn_t s_pending_post_process = NULL;
+static int (*s_pending_post_process)(const struct cmd_ctx *ctx) = NULL;
 
-static inline esp_response_code_t s_validate_checksum(const uint8_t *data, uint32_t size, uint32_t expected)
+static inline int s_validate_checksum(const uint8_t *data, uint32_t size, uint32_t expected)
 {
     uint32_t checksum = 0xEF;
     for (uint32_t i = 0; i < size; i++) {
@@ -86,8 +83,7 @@ static inline esp_response_code_t s_validate_checksum(const uint8_t *data, uint3
     return RESPONSE_SUCCESS;
 }
 
-static void s_send_response(uint8_t command, esp_response_code_t response_code,
-                            const command_response_data_t *response_data)
+static void s_send_response(uint8_t command, int response_code, const struct command_response_data *response_data)
 {
     uint8_t response_buffer[MAX_RESPONSE_SIZE] = {0};
 
@@ -120,7 +116,7 @@ static void s_send_response(uint8_t command, esp_response_code_t response_code,
     slip_send_frame(response_buffer, total_frame_size);
 }
 
-static inline esp_response_code_t s_check_flash_in_progress(void)
+static inline int s_check_flash_in_progress(void)
 {
     if (!s_flash_state.in_progress) {
         return RESPONSE_NOT_IN_FLASH_MODE;
@@ -128,7 +124,7 @@ static inline esp_response_code_t s_check_flash_in_progress(void)
     return RESPONSE_SUCCESS;
 }
 
-static inline esp_response_code_t s_check_memory_in_progress(void)
+static inline int s_check_memory_in_progress(void)
 {
     if (!s_memory_state.in_progress) {
         return RESPONSE_NOT_IN_FLASH_MODE;
@@ -136,7 +132,7 @@ static inline esp_response_code_t s_check_memory_in_progress(void)
     return RESPONSE_SUCCESS;
 }
 
-static inline esp_response_code_t s_ensure_flash_erased_to(uint32_t target_addr)
+static inline int s_ensure_flash_erased_to(uint32_t target_addr)
 {
     while (s_flash_state.next_erase_addr < target_addr) {
         int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
@@ -148,7 +144,7 @@ static inline esp_response_code_t s_ensure_flash_erased_to(uint32_t target_addr)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_init_flash_operation(const uint8_t *buffer, uint16_t size, bool is_compressed)
+static int s_init_flash_operation(const uint8_t *buffer, uint16_t size, bool is_compressed)
 {
     if (size != FLASH_BEGIN_SIZE && size != FLASH_BEGIN_ENC_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -187,13 +183,13 @@ static esp_response_code_t s_init_flash_operation(const uint8_t *buffer, uint16_
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_handle_flash_end(const uint8_t *buffer, uint16_t size, uint32_t *reboot_flag)
+static int s_handle_flash_end(const uint8_t *buffer, uint16_t size, uint32_t *reboot_flag)
 {
     if (size != FLASH_END_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
     }
 
-    esp_response_code_t check = s_check_flash_in_progress();
+    int check = s_check_flash_in_progress();
     if (check != RESPONSE_SUCCESS) {
         return check;
     }
@@ -208,9 +204,9 @@ static esp_response_code_t s_handle_flash_end(const uint8_t *buffer, uint16_t si
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_write_flash_data(const uint8_t *data, uint32_t size)
+static int s_write_flash_data(const uint8_t *data, uint32_t size)
 {
-    esp_response_code_t result = s_ensure_flash_erased_to(s_flash_state.offset + size);
+    int result = s_ensure_flash_erased_to(s_flash_state.offset + size);
     if (result != RESPONSE_SUCCESS) {
         return result;
     }
@@ -226,7 +222,7 @@ static esp_response_code_t s_write_flash_data(const uint8_t *data, uint32_t size
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_flash_data_post_process(const cmd_ctx_t *ctx)
+static int s_flash_data_post_process(const struct cmd_ctx *ctx)
 {
     const uint8_t *flash_data = ctx->data + FLASH_DATA_HEADER_SIZE;
     const uint16_t actual_data_size = (uint16_t)(ctx->packet_size - FLASH_DATA_HEADER_SIZE);
@@ -235,7 +231,7 @@ static esp_response_code_t s_flash_data_post_process(const cmd_ctx_t *ctx)
     return s_write_flash_data(flash_data, write_size);
 }
 
-static esp_response_code_t s_flash_defl_data_post_process(const cmd_ctx_t *ctx)
+static int s_flash_defl_data_post_process(const struct cmd_ctx *ctx)
 {
     const uint8_t *ptr = ctx->data;
     uint32_t data_size = get_le_to_u32(ptr);
@@ -290,7 +286,7 @@ static esp_response_code_t s_flash_defl_data_post_process(const cmd_ctx_t *ctx)
 
             uint32_t write_size = (uint32_t)(decompressed_data_ptr - decompressed_data);
 
-            esp_response_code_t write_result = s_write_flash_data(decompressed_data, write_size);
+            int write_result = s_write_flash_data(decompressed_data, write_size);
             if (write_result != RESPONSE_SUCCESS) {
                 return write_result;
             }
@@ -306,7 +302,7 @@ static esp_response_code_t s_flash_defl_data_post_process(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_sync(const cmd_ctx_t *ctx)
+static int s_sync(const struct cmd_ctx *ctx)
 {
     /* Bootloader responds to the SYNC request with eight identical SYNC responses.
      * Stub flasher should react the same way so SYNC could be possible with the
@@ -327,18 +323,18 @@ static esp_response_code_t s_sync(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_flash_begin(const cmd_ctx_t *ctx)
+static int s_flash_begin(const struct cmd_ctx *ctx)
 {
     return s_init_flash_operation(ctx->data, ctx->packet_size, false);
 }
 
-static esp_response_code_t s_flash_data(const cmd_ctx_t *ctx)
+static int s_flash_data(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size < FLASH_DATA_HEADER_SIZE) {
         return RESPONSE_NOT_ENOUGH_DATA;
     }
 
-    esp_response_code_t check = s_check_flash_in_progress();
+    int check = s_check_flash_in_progress();
     if (check != RESPONSE_SUCCESS) {
         return check;
     }
@@ -353,7 +349,7 @@ static esp_response_code_t s_flash_data(const cmd_ctx_t *ctx)
     }
 
     // Validate checksum of the flash data
-    esp_response_code_t checksum_result = s_validate_checksum(flash_data, actual_data_size, ctx->checksum);
+    int checksum_result = s_validate_checksum(flash_data, actual_data_size, ctx->checksum);
     if (checksum_result != RESPONSE_SUCCESS) {
         return checksum_result;
     }
@@ -364,10 +360,10 @@ static esp_response_code_t s_flash_data(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_flash_end(const cmd_ctx_t *ctx)
+static int s_flash_end(const struct cmd_ctx *ctx)
 {
     uint32_t reboot_flag = 0;
-    esp_response_code_t result = s_handle_flash_end(ctx->data, ctx->packet_size, &reboot_flag);
+    int result = s_handle_flash_end(ctx->data, ctx->packet_size, &reboot_flag);
 
     // If reboot flag is set, reboot the device
     if (result == RESPONSE_SUCCESS && reboot_flag != 0) {
@@ -377,12 +373,12 @@ static esp_response_code_t s_flash_end(const cmd_ctx_t *ctx)
     return result;
 }
 
-static esp_response_code_t s_flash_defl_begin(const cmd_ctx_t *ctx)
+static int s_flash_defl_begin(const struct cmd_ctx *ctx)
 {
     return s_init_flash_operation(ctx->data, ctx->packet_size, true);
 }
 
-static esp_response_code_t s_flash_defl_data(const cmd_ctx_t *ctx)
+static int s_flash_defl_data(const struct cmd_ctx *ctx)
 {
 #define ADLER32_CHECKSUM_SIZE 4
 
@@ -390,7 +386,7 @@ static esp_response_code_t s_flash_defl_data(const cmd_ctx_t *ctx)
         return RESPONSE_BAD_DATA_LEN;
     }
 
-    esp_response_code_t check = s_check_flash_in_progress();
+    int check = s_check_flash_in_progress();
     if (check != RESPONSE_SUCCESS) {
         return check;
     }
@@ -406,7 +402,7 @@ static esp_response_code_t s_flash_defl_data(const cmd_ctx_t *ctx)
     const uint8_t *compressed_data = ctx->data + FLASH_DEFL_DATA_HEADER_SIZE;
 
     // Validate checksum of the compressed data
-    esp_response_code_t checksum_result = s_validate_checksum(compressed_data, data_size, ctx->checksum);
+    int checksum_result = s_validate_checksum(compressed_data, data_size, ctx->checksum);
     if (checksum_result != RESPONSE_SUCCESS) {
         return checksum_result;
     }
@@ -418,10 +414,10 @@ static esp_response_code_t s_flash_defl_data(const cmd_ctx_t *ctx)
 #undef ADLER32_CHECKSUM_SIZE
 }
 
-static esp_response_code_t s_flash_defl_end(const cmd_ctx_t *ctx)
+static int s_flash_defl_end(const struct cmd_ctx *ctx)
 {
     uint32_t reboot_flag = 0;
-    esp_response_code_t result = s_handle_flash_end(ctx->data, ctx->packet_size, &reboot_flag);
+    int result = s_handle_flash_end(ctx->data, ctx->packet_size, &reboot_flag);
 
     if (result == RESPONSE_SUCCESS && reboot_flag != 0) {
         // TODO: Implement reboot
@@ -430,7 +426,7 @@ static esp_response_code_t s_flash_defl_end(const cmd_ctx_t *ctx)
     return result;
 }
 
-static esp_response_code_t s_mem_begin(const cmd_ctx_t *ctx)
+static int s_mem_begin(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size != MEM_BEGIN_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -449,13 +445,13 @@ static esp_response_code_t s_mem_begin(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_mem_data(const cmd_ctx_t *ctx)
+static int s_mem_data(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size < MEM_DATA_HEADER_SIZE) {
         return RESPONSE_NOT_ENOUGH_DATA;
     }
 
-    esp_response_code_t check = s_check_memory_in_progress();
+    int check = s_check_memory_in_progress();
     if (check != RESPONSE_SUCCESS) {
         return check;
     }
@@ -480,7 +476,7 @@ static esp_response_code_t s_mem_data(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_mem_end_post_process(const cmd_ctx_t *ctx)
+static int s_mem_end_post_process(const struct cmd_ctx *ctx)
 {
     const uint8_t *ptr = ctx->data;
     uint32_t flag = get_le_to_u32(ptr);
@@ -499,13 +495,13 @@ static esp_response_code_t s_mem_end_post_process(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_mem_end(const cmd_ctx_t *ctx)
+static int s_mem_end(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size != MEM_END_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
     }
 
-    esp_response_code_t check = s_check_memory_in_progress();
+    int check = s_check_memory_in_progress();
     if (check != RESPONSE_SUCCESS) {
         return check;
     }
@@ -517,7 +513,7 @@ static esp_response_code_t s_mem_end(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_write_reg(const cmd_ctx_t *ctx)
+static int s_write_reg(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size == 0 || ctx->packet_size % WRITE_REG_ENTRY_SIZE != 0) {
         return RESPONSE_NOT_ENOUGH_DATA;
@@ -548,7 +544,7 @@ static esp_response_code_t s_write_reg(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_read_reg(const cmd_ctx_t *ctx, uint32_t *reg_value)
+static int s_read_reg(const struct cmd_ctx *ctx, uint32_t *reg_value)
 {
     if (ctx->packet_size != READ_REG_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -560,7 +556,7 @@ static esp_response_code_t s_read_reg(const cmd_ctx_t *ctx, uint32_t *reg_value)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_spi_attach(const cmd_ctx_t *ctx)
+static int s_spi_attach(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size != SPI_ATTACH_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -571,7 +567,7 @@ static esp_response_code_t s_spi_attach(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_spi_set_params(const cmd_ctx_t *ctx)
+static int s_spi_set_params(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size != SPI_SET_PARAMS_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -599,7 +595,7 @@ static esp_response_code_t s_spi_set_params(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_change_baudrate_post_process(const cmd_ctx_t *ctx)
+static int s_change_baudrate_post_process(const struct cmd_ctx *ctx)
 {
     uint32_t new_baudrate = get_le_to_u32(ctx->data);
 
@@ -608,7 +604,7 @@ static esp_response_code_t s_change_baudrate_post_process(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_change_baudrate(const cmd_ctx_t *ctx)
+static int s_change_baudrate(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size != CHANGE_BAUDRATE_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -619,7 +615,7 @@ static esp_response_code_t s_change_baudrate(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_spi_flash_md5(const cmd_ctx_t *ctx, uint8_t *md5_hash)
+static int s_spi_flash_md5(const struct cmd_ctx *ctx, uint8_t *md5_hash)
 {
     if (ctx->packet_size != SPI_FLASH_MD5_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -664,7 +660,7 @@ static esp_response_code_t s_spi_flash_md5(const cmd_ctx_t *ctx, uint8_t *md5_ha
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_get_security_info(const cmd_ctx_t *ctx, uint8_t *security_info, uint16_t *info_size)
+static int s_get_security_info(const struct cmd_ctx *ctx, uint8_t *security_info, uint16_t *info_size)
 {
     if (ctx->packet_size != GET_SECURITY_INFO_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -693,7 +689,7 @@ static esp_response_code_t s_get_security_info(const cmd_ctx_t *ctx, uint8_t *se
     }
 }
 
-static esp_response_code_t s_read_flash_post_process(const cmd_ctx_t *ctx)
+static int s_read_flash_post_process(const struct cmd_ctx *ctx)
 {
     const uint8_t *ptr = ctx->data;
     uint32_t offset = get_le_to_u32(ptr);
@@ -768,7 +764,7 @@ static esp_response_code_t s_read_flash_post_process(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_read_flash(const cmd_ctx_t *ctx)
+static int s_read_flash(const struct cmd_ctx *ctx)
 {
     if (ctx->packet_size != READ_FLASH_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
@@ -778,7 +774,7 @@ static esp_response_code_t s_read_flash(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_erase_flash(const cmd_ctx_t *ctx)
+static int s_erase_flash(const struct cmd_ctx *ctx)
 {
     (void)ctx;  // Unused parameter
     int result = stub_lib_flash_erase_chip();
@@ -789,7 +785,7 @@ static esp_response_code_t s_erase_flash(const cmd_ctx_t *ctx)
     return RESPONSE_SUCCESS;
 }
 
-static esp_response_code_t s_erase_region(const cmd_ctx_t *ctx)
+static int s_erase_region(const struct cmd_ctx *ctx)
 {
     // Timeout values for flash operations, inspired by esptool
 #define ERASE_PER_SECTOR_TIMEOUT_US 120000U
@@ -825,7 +821,7 @@ static esp_response_code_t s_erase_region(const cmd_ctx_t *ctx)
 void handle_command(const uint8_t *buffer, size_t size)
 {
     // Accumulates errors from previous post-process and current command
-    static esp_response_code_t accumulated_result = RESPONSE_SUCCESS;
+    static int accumulated_result = RESPONSE_SUCCESS;
 
     const uint8_t *ptr = buffer;
     uint8_t direction = *ptr++;
@@ -848,7 +844,7 @@ void handle_command(const uint8_t *buffer, size_t size)
     }
 
     // Create command context
-    cmd_ctx_t ctx = {
+    struct cmd_ctx ctx = {
         .command = command,
         .direction = direction,
         .packet_size = packet_size,
@@ -864,7 +860,7 @@ void handle_command(const uint8_t *buffer, size_t size)
     }
 
     // Initialize response data for commands that return data
-    command_response_data_t response = {0};
+    struct command_response_data response = {0};
 
     switch (command) {
     case ESP_SYNC:

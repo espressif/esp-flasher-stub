@@ -42,7 +42,7 @@ extern "C" {
  * @brief ESP command response codes (16-bit)
  * Wire format: big-endian (2 bytes, high byte first)
  */
-typedef enum {
+enum esp_response_code {
     RESPONSE_SUCCESS             = 0x0000,
     RESPONSE_BAD_DATA_LEN        = 0xC000,
     RESPONSE_BAD_DATA_CHECKSUM   = 0xC100,
@@ -55,7 +55,7 @@ typedef enum {
     RESPONSE_NOT_ENOUGH_DATA     = 0xC800,
     RESPONSE_TOO_MUCH_DATA       = 0xC900,
     RESPONSE_CMD_NOT_IMPLEMENTED = 0xFF00
-} esp_response_code_t;
+};
 
 /**
  * @brief ESP command expected data sizes (in bytes)

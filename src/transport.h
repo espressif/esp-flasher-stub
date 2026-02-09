@@ -17,11 +17,11 @@ extern "C" {
 /**
  * @brief Supported transport types
  */
-typedef enum {
+enum stub_transport_type {
     STUB_TRANSPORT_UART = 0,
     STUB_TRANSPORT_USB_OTG = 1,
     STUB_TRANSPORT_USB_SERIAL_JTAG = 2,
-} stub_transport_type_t;
+};
 
 /**
  * @brief Detect which transport is active (selected by ROM)
@@ -29,12 +29,12 @@ typedef enum {
  * This should be called once at startup and the result reused, to avoid repeated
  * USB transport probing.
  */
-stub_transport_type_t stub_transport_detect(void);
+int stub_transport_detect(void);
 
 /**
  * @brief Initialize the transport layer
  */
-void stub_transport_init(stub_transport_type_t transport);
+void stub_transport_init(int transport);
 
 /**
  * @brief UART interrupt handler
