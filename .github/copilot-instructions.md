@@ -8,9 +8,9 @@
 
 **Project Type**: Embedded C firmware with CMake build system
 **Languages**: C (firmware), Python (build tools, tests)
-**Size**: Small-medium (~20 C source files, ~1000 lines main codebase)
-**Target Chips**: esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32p4, esp8266
-**Build Time**: ~5-10 seconds per chip, ~2-3 minutes for all chips
+**Size**: Small (~8 C source files, ~1600 lines main codebase)
+**Target Chips**: esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266
+**Build Time**: ~0.5-1.5 seconds per chip, ~10-15 seconds for all chips built by build_all_chips.sh (12 chips)
 
 ## Critical Setup Steps (ALWAYS Follow This Order)
 
@@ -57,7 +57,7 @@ cd ..
 This downloads and extracts three toolchains (takes ~2-5 minutes):
 1. `xtensa-esp-elf-15.1.0_20250607` - For esp32, esp32s2, esp32s3 (~120MB download)
 2. `xtensa-lx106-elf-gcc8_4_0-esp-2020r3` - For esp8266 (~100MB download)
-3. `riscv32-esp-elf-15.1.0_20250607` - For esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32p4 (~255MB download)
+3. `riscv32-esp-elf-15.1.0_20250607` - For esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4 (~255MB download)
 
 **Note**: Network issues may cause partial downloads. If esp8266 toolchain fails, you can still build other chips.
 
@@ -94,7 +94,7 @@ cmake . -B build -G Ninja -DTARGET_CHIP=esp32s2  # Replace with desired chip
 ninja -C build
 ```
 
-**Build Time**: ~5-10 seconds per chip
+**Build Time**: ~0.5-1.5 seconds per chip
 **Output Files**:
 - `build/src/stub-{chip}.elf` - ELF binary
 - `build/{chip}.json` - JSON file with stub data (used by esptool)
@@ -112,7 +112,7 @@ source ./tools/export_toolchains.sh
 ./tools/build_all_chips.sh
 ```
 
-**Build Time**: ~2-3 minutes for all 11 chips
+**Build Time**: ~10-15 seconds for all 12 chips built by build_all_chips.sh (note: cmake defines 14 total chips, but only 12 are in the build script)
 **Output**: Creates `build-{chip}/` directories for each chip with ELF and JSON files
 
 This script:
@@ -156,14 +156,14 @@ source venv/bin/activate
 pre-commit run --all-files
 ```
 
-**Note**: Astyle formatting is configured in `.astyle-rules.yml`. Submodules and libraries (like `src/miniz.*`) are excluded from checks.
+**Note**: Astyle formatting is configured in `.astyle-rules.yml`. Submodules are excluded from checks.
 
 ### Copyright Headers
 
-**ALWAYS** include this header in new C files:
+**ALWAYS** include this header in new C files (the year will be auto-updated by the check-copyright tool):
 ```c
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
@@ -171,9 +171,11 @@ pre-commit run --all-files
 
 For Python files:
 ```python
-# SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 ```
+
+**Note**: The check-copyright tool uses `{years}` as a placeholder and will automatically manage copyright years based on the file's creation and modification dates.
 
 ## CI/CD Workflows
 
@@ -228,8 +230,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `command_handler.c/h` - Command parsing and dispatch
 - `commands.h` - Command ID definitions
 - `transport.c/h` - UART/USB-JTAG transport layer
-- `miniz.c/h` - ZIP compression library (esp8266 only, third-party library with upstream TODOs)
-- `ld/` - Linker scripts for each chip (e.g., `esp32s2.ld`, `esp8266.ld`)
+- `ld/` - Linker scripts: one for each chip target (12 chip-specific scripts) plus `common.ld` included by all chip scripts
 
 **`cmake/`**
 - `esp-targets.cmake` - ESP chip definitions, toolchain configuration functions, target-specific compiler flags
@@ -239,7 +240,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `setup_toolchains.sh` - Downloads and extracts toolchains
 - `export_toolchains.sh` - Adds toolchains to PATH (must be sourced)
 - `elf2json.py` - Converts ELF binaries to JSON format for esptool
-- `install_all_chips.sh` - (Not commonly used)
+- `install_all_chips.sh` - Copies built JSON files to esptool directory (requires ESPTOOL_STUBS_DIR env var)
 
 **`esp-stub-lib/`** (submodule)
 - Core library providing flash operations, UART, security, memory utilities
@@ -252,7 +253,14 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
   - `TestSlip.c` - SLIP protocol tests
   - `cmock_config.yml` - CMock configuration
   - `CMakeLists.txt` - Host test build configuration
+  - `soc/` - Mock SOC headers for host tests
 - `target/` - Cross-compiled tests (run on actual hardware)
+  - `run-tests.sh` - Target test runner script
+  - `load-test.py` - Python script to load and run tests on hardware
+  - `TestTargetExample.c` - Example target test
+  - `CMakeLists.txt` - Target test build configuration
+- `scripts/` - Utility scripts
+  - `generate_mocks.sh` - Script to generate mocks from headers
 - `Unity/` (submodule) - Unit testing framework
 - `CMock/` (submodule) - Mocking framework
 - `README.md` - Detailed testing documentation
@@ -263,7 +271,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - **CMake target configuration**: `cmake/esp-targets.cmake` determines toolchain and compiler flags based on TARGET_CHIP
 - **Linker scripts**: Each chip has a specific linker script in `src/ld/{chip}.ld`
 - **Post-build processing**: `tools/elf2json.py` requires esptool and is called automatically after build
-- **Chip-specific code**: esp8266 includes miniz library for compression; other chips don't need it
+- **Chip support**: cmake defines 14 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266), but build_all_chips.sh only builds 12 (excludes esp32h21 and esp32h4)
 
 ## Common Issues and Workarounds
 
@@ -317,19 +325,15 @@ pre-commit run astyle_py --all-files
 
 The following TODOs exist in the codebase:
 
-**src/command_handler.c** (lines 47, 54, 71, 104, 110):
-- Flash initialization improvements needed
+**src/command_handler.c** (lines 213, 218, 300, 563, 905):
 - Cleanup procedures for flash operations
 - Reboot command implementation
 - Delay consideration for flash operations
+- Reboot command implementation (duplicate entry)
 - WDT reset implementation for system reset
 
-**src/transport.c** (line 40):
+**src/transport.c** (line 58):
 - Proper fix needed for zero-length packet handling
-
-**src/miniz.c** (multiple locations):
-- Various compression optimizations and improvements
-- **Note**: This is a third-party library - these are upstream issues and should NOT be modified locally
 
 When working on these areas, consider whether the TODO is actionable or requires broader design decisions.
 
@@ -358,6 +362,11 @@ When working on these areas, consider whether the TODO is actionable or requires
    ```bash
    ls -la build/*.json
    ```
+
+5. **Update documentation if needed**:
+   - If your PR adds or removes files, update the file lists in `.github/copilot-instructions.md` and `README.md` accordingly
+   - If your PR adds support for a new chip target, update the chip lists in `.github/copilot-instructions.md` and verify `tools/build_all_chips.sh` includes it
+   - Review whether `.github/copilot-instructions.md` or `README.md` need updates to reflect your changes (e.g., new build steps, changed dependencies, updated workflows)
 
 ## Tips for Efficient Development
 
