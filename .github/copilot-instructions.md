@@ -10,7 +10,7 @@
 **Languages**: C (firmware), Python (build tools, tests)
 **Size**: Small (~8 C source files, ~1600 lines main codebase)
 **Target Chips**: esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266
-**Build Time**: ~0.5-1.5 seconds per chip, ~10-15 seconds for all chips built by build_all_chips.sh (12 chips)
+**Build Time**: ~0.5-1.5 seconds per chip, ~10-16 seconds for all chips built by build_all_chips.sh (13 chips)
 
 ## Critical Setup Steps (ALWAYS Follow This Order)
 
@@ -112,7 +112,7 @@ source ./tools/export_toolchains.sh
 ./tools/build_all_chips.sh
 ```
 
-**Build Time**: ~10-15 seconds for all 12 chips built by build_all_chips.sh (note: cmake defines 14 total chips, but only 12 are in the build script)
+**Build Time**: ~10-15 seconds for all 13 chips built by build_all_chips.sh (note: cmake defines 14 total chips, but only 13 are in the build script)
 **Output**: Creates `build-{chip}/` directories for each chip with ELF and JSON files
 
 This script:
@@ -230,7 +230,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `command_handler.c/h` - Command parsing and dispatch
 - `commands.h` - Command ID definitions
 - `transport.c/h` - UART/USB-JTAG transport layer
-- `ld/` - Linker scripts: one for each chip target (12 chip-specific scripts) plus `common.ld` included by all chip scripts
+- `ld/` - Linker scripts: one for each chip target (13 chip-specific scripts) plus `common.ld` included by all chip scripts
 
 **`cmake/`**
 - `esp-targets.cmake` - ESP chip definitions, toolchain configuration functions, target-specific compiler flags
@@ -271,7 +271,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - **CMake target configuration**: `cmake/esp-targets.cmake` determines toolchain and compiler flags based on TARGET_CHIP
 - **Linker scripts**: Each chip has a specific linker script in `src/ld/{chip}.ld`
 - **Post-build processing**: `tools/elf2json.py` requires esptool and is called automatically after build
-- **Chip support**: cmake defines 14 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266), but build_all_chips.sh only builds 12 (excludes esp32h21 and esp32h4)
+- **Chip support**: cmake defines 14 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266), but build_all_chips.sh only builds 13 (excludes esp32h21)
 
 ## Common Issues and Workarounds
 
