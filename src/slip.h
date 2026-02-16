@@ -36,6 +36,24 @@ enum slip_frame_state {
 void slip_set_tx_fn(uint8_t (*tx_fn)(uint8_t));
 
 /**
+ * @brief Register flush function used by SLIP to flush TX buffer
+ *
+ * The function is called after a complete SLIP frame has been sent.
+ * Optional - set to NULL for transports that don't require flushing.
+ *
+ * @param flush_fn Function pointer with signature: void (*)(void)
+ */
+void slip_set_flush_fn(void (*flush_fn)(void));
+
+/**
+ * @brief Flush TX buffer
+ *
+ * Calls the registered flush function. This is automatically invoked by
+ * slip_send_frame() after sending a complete frame.
+ */
+void slip_flush(void);
+
+/**
  * @brief Send SLIP frame delimiter
  */
 void slip_send_frame_delimiter(void);
