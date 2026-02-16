@@ -20,11 +20,11 @@ extern "C" {
 #define SLIP_ESC_END        0xDC    /* Escaped frame delimiter */
 #define SLIP_ESC_ESC        0xDD    /* Escaped escape character */
 
-typedef enum {
+enum slip_frame_state {
     SLIP_STATE_IDLE,         /* No frame processing */
     SLIP_STATE_COMPLETE,     /* Frame complete and ready */
     SLIP_STATE_ERROR,        /* Frame error occurred */
-} slip_frame_state_t;
+};
 
 /**
  * @brief Register TX function used by SLIP to send bytes
@@ -93,7 +93,7 @@ bool slip_is_frame_error(void);
  *
  * @return SLIP_STATE_COMPLETE, SLIP_STATE_ERROR, or SLIP_STATE_IDLE
  */
-slip_frame_state_t slip_get_frame_state(void);
+int slip_get_frame_state(void);
 
 /**
  * @brief Get pointer to frame data (ZERO-COPY)
