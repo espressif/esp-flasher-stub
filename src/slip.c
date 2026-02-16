@@ -38,12 +38,19 @@ static volatile enum slip_state s_state = STATE_NO_FRAME;
 
 /* TX function pointer set by transport init (defaults to UART) */
 static uint8_t (*s_tx_one_char)(uint8_t) = stub_lib_uart_tx_one_char;
+/* Flush function pointer set by transport init (optional) */
+static void (*s_flush_fn)(void) = NULL;
 
 void slip_set_tx_fn(uint8_t (*tx_fn)(uint8_t))
 {
     if (tx_fn) {
         s_tx_one_char = tx_fn;
     }
+}
+
+void slip_set_flush_fn(void (*flush_fn)(void))
+{
+    s_flush_fn = flush_fn;
 }
 
 void slip_send_frame_delimiter(void)
@@ -80,6 +87,13 @@ void slip_send_frame_data_buf(const void *data, size_t size)
     }
 }
 
+void slip_flush(void)
+{
+    if (s_flush_fn) {
+        s_flush_fn();
+    }
+}
+
 void slip_send_frame(const void *data, size_t size)
 {
     if (!data) {
@@ -89,6 +103,7 @@ void slip_send_frame(const void *data, size_t size)
     slip_send_frame_delimiter();
     slip_send_frame_data_buf(data, size);
     slip_send_frame_delimiter();
+    slip_flush();
 }
 
 void slip_recv_byte(uint8_t byte)
