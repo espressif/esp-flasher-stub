@@ -14,6 +14,7 @@
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/security.h>
 #include <esp-stub-lib/miniz.h>
+#include <esp-stub-lib/md5.h>
 #include "slip.h"
 #include "commands.h"
 #include "command_handler.h"
