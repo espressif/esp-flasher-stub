@@ -65,6 +65,36 @@ int nand_read_spare(uint32_t page_number, uint8_t *spare_data);
  */
 int nand_write_spare(uint32_t page_number, uint8_t is_bad);
 
+/**
+ * @brief Read JEDEC ID from NAND flash (0x9F command)
+ * @param manufacturer_id Output: manufacturer ID (0xEF for Winbond)
+ * @param device_id Output: 2-byte device ID (0xAA21 for W25N01GVZEIG)
+ * @return 0 on success, negative on error
+ */
+int nand_read_id(uint8_t *manufacturer_id, uint16_t *device_id);
+
+/**
+ * @brief Read main area of a single NAND page
+ * @param page_number Page number to read
+ * @param buf Output buffer (must be at least buf_size bytes)
+ * @param buf_size Number of bytes to read (up to page_size)
+ * @return 0 on success, negative on error
+ */
+int nand_read_page(uint32_t page_number, uint8_t *buf, uint32_t buf_size);
+
+/**
+ * @brief Get the configured page size
+ * @return Page size in bytes
+ */
+uint32_t nand_get_page_size(void);
+
+/**
+ * @brief Get debug ID bytes read during attach (for diagnostics)
+ * @return Pointer to 3-byte array (manufacturer ID + 2-byte device ID)
+ */
+const uint8_t *nand_get_debug_id(void);
+const uint8_t *nand_get_debug_extra(void);
+
 #ifdef __cplusplus
 }
 #endif
