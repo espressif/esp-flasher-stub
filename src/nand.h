@@ -19,7 +19,8 @@ extern "C" {
 #define CMD_WRITE_ENABLE    0x06
 #define CMD_PAGE_READ       0x13
 #define CMD_PROGRAM_EXECUTE 0x10
-#define CMD_PROGRAM_LOAD    0x84
+#define CMD_PROGRAM_LOAD    0x02   /* Program Load: initial load at column 0 (W25N01GV) */
+#define CMD_PROGRAM_LOAD_RANDOM 0x84
 #define CMD_READ_FROM_CACHE 0x03
 #define CMD_ERASE_BLOCK     0xD8
 
@@ -81,6 +82,21 @@ int nand_read_id(uint8_t *manufacturer_id, uint16_t *device_id);
  * @return 0 on success, negative on error
  */
 int nand_read_page(uint32_t page_number, uint8_t *buf, uint32_t buf_size);
+
+/**
+ * @brief Write full main area of a single NAND page (2048 bytes)
+ * @param page_number Page number to write
+ * @param buf Data to write (must be at least page_size bytes)
+ * @return 0 on success, negative on error
+ */
+int nand_write_page(uint32_t page_number, const uint8_t *buf);
+
+/**
+ * @brief Erase a block (64 pages, 128KB)
+ * @param page_number First page number of the block (must be block-aligned)
+ * @return 0 on success, negative on error
+ */
+int nand_erase_block(uint32_t page_number);
 
 /**
  * @brief Get the configured page size

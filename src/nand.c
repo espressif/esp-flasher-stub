@@ -83,9 +83,9 @@ static int nand_read_register(uint8_t reg, uint8_t *val)
  * @param val Value to write
  * @return 0 on success, negative on error
  */
-static int nand_write_register(uint8_t reg, uint8_t val) __attribute__((unused));
 static int nand_write_register(uint8_t reg, uint8_t val)
 {
+    /* Set Feature: command 0x1F, then 2-byte data (register, value) */
     uint8_t data[2] = {reg, val};
     return spi_transaction_wrapper(CMD_SET_REGISTER, NULL, 0, data, 16, NULL, 0);
 }
@@ -171,6 +171,20 @@ int nand_attach(uint32_t hspi_arg)
     spi_transaction_wrapper(0x0F, &reg_addr, 8, NULL, 0, &status, 8);
     s_debug_extra[2] = status;
 
+    // Clear write protection (W25N01GV ships with all blocks protected)
+    ret = nand_write_register(REG_PROTECT, 0x00);
+    if (ret != 0) {
+        return ret;
+    }
+
+    // Verify protection was cleared (read back)
+    uint8_t prot_after = 0xFF;
+    nand_read_register(REG_PROTECT, &prot_after);
+    s_debug_extra[1] = prot_after;
+    if (prot_after != 0x00) {
+        return -50;  /* Protection register could not be cleared */
+    }
+
     return 0;
 }
 
@@ -240,7 +254,7 @@ int nand_write_spare(uint32_t page_number, uint8_t is_bad)
     col_addr[0] = (uint8_t)((column >> 8) & 0xFFU);
     col_addr[1] = (uint8_t)(column & 0xFFU);
 
-    ret = spi_transaction_wrapper(CMD_PROGRAM_LOAD, col_addr, 16, bad_block_marker, 16, NULL, 0);
+    ret = spi_transaction_wrapper(CMD_PROGRAM_LOAD_RANDOM, col_addr, 16, bad_block_marker, 16, NULL, 0);
     if (ret != 0) {
         return -20;
     }
@@ -264,6 +278,90 @@ int nand_write_spare(uint32_t page_number, uint8_t is_bad)
 }
 
 #define SPI2_MAX_RX_BYTES 64
+#define SPI2_MAX_TX_BYTES 64
+
+int nand_write_page(uint32_t page_number, const uint8_t *buf)
+{
+    if (!s_nand_config.initialized) {
+        return -1;
+    }
+
+    int ret = nand_write_enable();
+    if (ret != 0) {
+        return ret;
+    }
+
+    // Program Load in 64-byte chunks: first chunk 0x02 (Load at col 0), rest 0x84 (Random)
+    uint32_t offset = 0;
+    while (offset < s_nand_config.page_size) {
+        uint32_t chunk = s_nand_config.page_size - offset;
+        if (chunk > SPI2_MAX_TX_BYTES) {
+            chunk = SPI2_MAX_TX_BYTES;
+        }
+
+        uint16_t column = (uint16_t)offset;
+        uint8_t col_addr[2];
+        col_addr[0] = (uint8_t)((column >> 8) & 0xFF);
+        col_addr[1] = (uint8_t)(column & 0xFF);
+
+        uint8_t cmd = (offset == 0) ? CMD_PROGRAM_LOAD : CMD_PROGRAM_LOAD_RANDOM;
+        ret = spi_transaction_wrapper(cmd, col_addr, 16, buf + offset, (uint16_t)(chunk * 8), NULL, 0);
+        if (ret != 0) {
+            return -20;
+        }
+
+        offset += chunk;
+    }
+
+    // Program Execute with 3-byte page address
+    uint8_t page_addr[3];
+    page_addr[0] = (uint8_t)((page_number >> 16) & 0xFF);
+    page_addr[1] = (uint8_t)((page_number >> 8) & 0xFF);
+    page_addr[2] = (uint8_t)(page_number & 0xFF);
+
+    ret = spi_transaction_wrapper(CMD_PROGRAM_EXECUTE, page_addr, 24, NULL, 0, NULL, 0);
+    if (ret != 0) {
+        return -30;
+    }
+
+    esp_rom_delay_us(500);  /* Allow program to start before polling */
+    ret = nand_wait_ready();
+    if (ret != 0) {
+        return -40 + ret;
+    }
+
+    return 0;
+}
+
+int nand_erase_block(uint32_t page_number)
+{
+    if (!s_nand_config.initialized) {
+        return -1;
+    }
+
+    int ret = nand_write_enable();
+    if (ret != 0) {
+        return ret;
+    }
+
+    uint8_t page_addr[3];
+    page_addr[0] = (uint8_t)((page_number >> 16) & 0xFF);
+    page_addr[1] = (uint8_t)((page_number >> 8) & 0xFF);
+    page_addr[2] = (uint8_t)(page_number & 0xFF);
+
+    ret = spi_transaction_wrapper(CMD_ERASE_BLOCK, page_addr, 24, NULL, 0, NULL, 0);
+    if (ret != 0) {
+        return -10;
+    }
+
+    ret = nand_wait_ready();
+    if (ret != 0) {
+        return -20 + ret;
+    }
+
+    esp_rom_delay_us(2000);  /* Allow block to settle after erase */
+    return 0;
+}
 
 int nand_read_page(uint32_t page_number, uint8_t *buf, uint32_t buf_size)
 {

@@ -43,6 +43,8 @@ extern "C" {
 #define ESP_SPI_NAND_READ_SPARE 0xD6
 #define ESP_SPI_NAND_WRITE_SPARE 0xD7
 #define ESP_SPI_NAND_READ_FLASH  0xD8
+#define ESP_SPI_NAND_WRITE_FLASH_BEGIN 0xD9
+#define ESP_SPI_NAND_WRITE_FLASH_DATA  0xDA
 
 /**
  * @brief ESP command response codes (16-bit)
@@ -94,6 +96,8 @@ enum esp_response_code {
 #define SPI_NAND_READ_SPARE_SIZE    4
 #define SPI_NAND_WRITE_SPARE_SIZE   5  // 4 bytes page_number + 1 byte is_bad
 #define SPI_NAND_READ_FLASH_SIZE    16 // same as READ_FLASH: offset, size, packet_size, max_inflight
+#define SPI_NAND_WRITE_FLASH_BEGIN_SIZE 16  // offset, total_size, block_size, packet_size
+#define SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE 16  // same as FLASH_DATA_HEADER_SIZE
 
 #ifdef __cplusplus
 }

@@ -70,6 +70,18 @@ struct command_response_data {
 
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
+
+/* NAND write operation state */
+#define NAND_PAGE_SIZE 2048
+#define NAND_PAGES_PER_BLOCK 64
+static struct {
+    uint32_t offset;           /* current byte offset in flash */
+    uint32_t total_remaining;  /* bytes left to receive */
+    uint8_t page_buf[NAND_PAGE_SIZE] __attribute__((aligned(4)));
+    uint32_t page_buf_filled;
+    bool in_progress;
+} s_nand_write_state = {0};
+
 static int (*s_pending_post_process)(const struct cmd_ctx *ctx) = NULL;
 
 static inline int s_validate_checksum(const uint8_t *data, uint32_t size, uint32_t expected)
@@ -925,11 +937,12 @@ static void s_spi_nand_attach(const uint8_t *buffer, uint16_t size)
 
     const uint8_t *dbg_id = nand_get_debug_id();
     const uint8_t *dbg_extra = nand_get_debug_extra();
-    // Pack: val=[status_reg, mfr, dev_hi, dev_lo], data=[prot_reg, cfg_reg]
+    // Pack: val=[status_reg, mfr, dev_hi, dev_lo], data=[prot_reg after clear]
     struct command_response_data response = {
         .value = ((uint32_t)dbg_extra[0] << 24) | ((uint32_t)dbg_id[0] << 16) |
                  ((uint32_t)dbg_id[1] << 8) | dbg_id[2],
-        .data_size = 0
+        .data_size = 1,
+        .data = { dbg_extra[1] }
     };
     s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_SUCCESS, &response);
 }
@@ -989,6 +1002,130 @@ static void s_spi_nand_write_spare(const uint8_t *buffer, uint16_t size)
     }
 
     s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_SUCCESS, NULL);
+}
+
+static int s_check_nand_write_in_progress(void)
+{
+    if (!s_nand_write_state.in_progress) {
+        return RESPONSE_NOT_IN_FLASH_MODE;
+    }
+    return RESPONSE_SUCCESS;
+}
+
+/* Flush one full page from s_nand_write_state.page_buf to NAND. Erase block if needed. */
+static int s_nand_write_flush_page(void)
+{
+    uint32_t page_number = s_nand_write_state.offset / NAND_PAGE_SIZE;
+    if (page_number % NAND_PAGES_PER_BLOCK == 0) {
+        int ret = nand_erase_block(page_number);
+        if (ret != 0) {
+            return RESPONSE_FAILED_SPI_OP;
+        }
+    }
+    if (nand_write_page(page_number, s_nand_write_state.page_buf) != 0) {
+        return RESPONSE_FAILED_SPI_OP;
+    }
+    s_nand_write_state.offset += NAND_PAGE_SIZE;
+    s_nand_write_state.page_buf_filled = 0;
+    return RESPONSE_SUCCESS;
+}
+
+static int s_spi_nand_write_flash_begin(const struct cmd_ctx *ctx)
+{
+    if (ctx->packet_size != SPI_NAND_WRITE_FLASH_BEGIN_SIZE) {
+        return RESPONSE_BAD_DATA_LEN;
+    }
+
+    const uint8_t *ptr = ctx->data;
+    uint32_t offset = get_le_to_u32(ptr);
+    ptr += sizeof(offset);
+    uint32_t total_size = get_le_to_u32(ptr);
+    ptr += sizeof(total_size);
+    (void)get_le_to_u32(ptr);  /* block_size - use fixed NAND_PAGE_SIZE * NAND_PAGES_PER_BLOCK */
+    ptr += sizeof(uint32_t);
+    (void)get_le_to_u32(ptr);  /* packet_size */
+
+    s_nand_write_state.offset = offset;
+    s_nand_write_state.total_remaining = total_size;
+    s_nand_write_state.page_buf_filled = 0;
+    s_nand_write_state.in_progress = true;
+
+    return RESPONSE_SUCCESS;
+}
+
+static int s_spi_nand_write_flash_data_post_process(const struct cmd_ctx *ctx)
+{
+    const uint8_t *flash_data = ctx->data + SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE;
+    const uint16_t actual_data_size = (uint16_t)(ctx->packet_size - SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE);
+    uint32_t to_process = MIN(actual_data_size, s_nand_write_state.total_remaining);
+    const uint8_t *src = flash_data;
+
+    while (to_process > 0) {
+        uint32_t space_in_page = NAND_PAGE_SIZE - s_nand_write_state.page_buf_filled;
+        uint32_t chunk = (to_process < space_in_page) ? to_process : space_in_page;
+
+        memcpy(s_nand_write_state.page_buf + s_nand_write_state.page_buf_filled, src, chunk);
+        s_nand_write_state.page_buf_filled += chunk;
+        s_nand_write_state.total_remaining -= chunk;
+        src += chunk;
+        to_process -= chunk;
+
+        if (s_nand_write_state.page_buf_filled >= NAND_PAGE_SIZE) {
+            int ret = s_nand_write_flush_page();
+            if (ret != RESPONSE_SUCCESS) {
+                return ret;
+            }
+        }
+    }
+
+    /* Last partial page: pad with 0xFF and write when we're done receiving */
+    if (s_nand_write_state.total_remaining == 0 && s_nand_write_state.page_buf_filled > 0) {
+        memset(s_nand_write_state.page_buf + s_nand_write_state.page_buf_filled, 0xFF,
+               NAND_PAGE_SIZE - s_nand_write_state.page_buf_filled);
+        s_nand_write_state.page_buf_filled = NAND_PAGE_SIZE;
+        int ret = s_nand_write_flush_page();
+        if (ret != RESPONSE_SUCCESS) {
+            return ret;
+        }
+    }
+
+    if (s_nand_write_state.total_remaining == 0) {
+        s_nand_write_state.in_progress = false;
+    }
+
+    return RESPONSE_SUCCESS;
+}
+
+static int s_spi_nand_write_flash_data(const struct cmd_ctx *ctx)
+{
+    if (ctx->packet_size < SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE) {
+        return RESPONSE_NOT_ENOUGH_DATA;
+    }
+
+    int check = s_check_nand_write_in_progress();
+    if (check != RESPONSE_SUCCESS) {
+        return check;
+    }
+
+    uint32_t data_len = get_le_to_u32(ctx->data);
+    const uint8_t *flash_data = ctx->data + SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE;
+    const uint16_t actual_data_size = (uint16_t)(ctx->packet_size - SPI_NAND_WRITE_FLASH_DATA_HEADER_SIZE);
+
+    if (data_len != actual_data_size) {
+        return RESPONSE_TOO_MUCH_DATA;
+    }
+
+    if (actual_data_size > s_nand_write_state.total_remaining) {
+        return RESPONSE_TOO_MUCH_DATA;
+    }
+
+    int checksum_result = s_validate_checksum(flash_data, actual_data_size, ctx->checksum);
+    if (checksum_result != RESPONSE_SUCCESS) {
+        return checksum_result;
+    }
+
+    s_pending_post_process = s_spi_nand_write_flash_data_post_process;
+    return RESPONSE_SUCCESS;
 }
 
 void handle_command(const uint8_t *buffer, size_t size)
@@ -1138,6 +1275,14 @@ void handle_command(const uint8_t *buffer, size_t size)
 
     case ESP_SPI_NAND_READ_FLASH:
         accumulated_result = s_spi_nand_read_flash(&ctx);
+        break;
+
+    case ESP_SPI_NAND_WRITE_FLASH_BEGIN:
+        accumulated_result = s_spi_nand_write_flash_begin(&ctx);
+        break;
+
+    case ESP_SPI_NAND_WRITE_FLASH_DATA:
+        accumulated_result = s_spi_nand_write_flash_data(&ctx);
         break;
 
     default:
