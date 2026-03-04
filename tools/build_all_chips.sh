@@ -25,9 +25,19 @@ ALL_CHIPS=(
 )
 
 for chip in "${ALL_CHIPS[@]}"; do
+    echo "========================================="
     echo "Building for $chip"
+    echo "========================================="
     DIR=build-$chip
+
+    # Pass 1: build base stub (generates plugin_addrs.cmake as a side effect)
     mkdir -p "$DIR"
-    cmake -G Ninja -B "$DIR" -DTARGET_CHIP=$chip --fresh
-    ninja -C "$DIR"
+    cmake -G Ninja -B "$DIR" -DTARGET_CHIP=$chip --fresh -Wno-dev
+    ninja -C "$DIR" "stub-$chip"
+
+    # Pass 2: re-configure now that plugin_addrs.cmake exists, then build plugin
+    if [ "$chip" != "esp8266" ]; then
+        cmake -B "$DIR" -DTARGET_CHIP=$chip -Wno-dev
+        ninja -C "$DIR"
+    fi
 done

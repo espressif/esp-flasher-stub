@@ -20,7 +20,7 @@
 #include "commands.h"
 #include "command_handler.h"
 #include "endian_utils.h"
-#include "nand.h"
+#include "plugin_table.h"
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
@@ -72,18 +72,29 @@ struct command_response_data {
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
 
-/* NAND write operation state (excluded on esp8266 to save memory) */
-#define NAND_PAGE_SIZE 2048
-#define NAND_PAGES_PER_BLOCK 64
-#ifndef STUB_NAND_DISABLED
-static struct {
-    uint32_t offset;           /* current byte offset in flash */
-    uint32_t total_remaining;  /* bytes left to receive */
-    uint8_t page_buf[NAND_PAGE_SIZE] __attribute__((aligned(4)));
-    uint32_t page_buf_filled;
-    bool in_progress;
-} s_nand_write_state = {0};
-#endif
+/* Default plugin handler: returns RESPONSE_CMD_NOT_IMPLEMENTED */
+static void s_plugin_unsupported(uint8_t command,
+                                  const uint8_t *data,
+                                  uint16_t size)
+{
+    (void)data; (void)size;
+    /* Replicate s_send_response inline to avoid forward declaration */
+    uint8_t buf[HEADER_SIZE + RESPONSE_STATUS_SIZE] = {0};
+    buf[0] = DIRECTION_RESPONSE;
+    buf[1] = command;
+    buf[2] = RESPONSE_STATUS_SIZE & 0xFF;
+    buf[3] = (RESPONSE_STATUS_SIZE >> 8) & 0xFF;
+    /* value = 0 (4 bytes already zeroed) */
+    /* status big-endian */
+    buf[8] = (RESPONSE_CMD_NOT_IMPLEMENTED >> 8) & 0xFF;
+    buf[9] = RESPONSE_CMD_NOT_IMPLEMENTED & 0xFF;
+    slip_send_frame(buf, sizeof(buf));
+}
+
+/* Function Pointer Table — entries are patched by esptool when a plugin is loaded */
+plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE] = {
+    [0 ... (PLUGIN_TABLE_SIZE - 1)] = s_plugin_unsupported
+};
 
 static int (*s_pending_post_process)(const struct cmd_ctx *ctx) = NULL;
 
@@ -706,7 +717,8 @@ static int s_get_security_info(const struct cmd_ctx *ctx, uint8_t *security_info
     }
 }
 
-#ifndef STUB_NAND_DISABLED
+/* NAND handlers removed — dispatched via plugin_table[] */
+#if 0
 static int s_spi_nand_read_flash_post_process(const struct cmd_ctx *ctx)
 {
     const uint8_t *ptr = ctx->data;
@@ -789,7 +801,7 @@ static int s_spi_nand_read_flash_post_process(const struct cmd_ctx *ctx)
 
     return RESPONSE_SUCCESS;
 }
-#endif /* !STUB_NAND_DISABLED */
+#endif /* 0 — nand read_flash post_process */
 
 static int s_read_flash_post_process(const struct cmd_ctx *ctx)
 {
@@ -921,8 +933,8 @@ static int s_erase_region(const struct cmd_ctx *ctx)
 #undef ERASE_PER_SECTOR_TIMEOUT_US
 }
 
-#ifndef STUB_NAND_DISABLED
-#define NAND_BLOCK_SIZE (NAND_PAGE_SIZE * NAND_PAGES_PER_BLOCK)
+#if 0  /* NAND handlers moved to nand_plugin.c */
+#define NAND_BLOCK_SIZE 131072
 #define NAND_BLOCK_COUNT 1024
 
 static int s_spi_nand_erase_flash(const struct cmd_ctx *ctx)
@@ -1205,7 +1217,7 @@ static int s_spi_nand_write_flash_data(const struct cmd_ctx *ctx)
     s_pending_post_process = s_spi_nand_write_flash_data_post_process;
     return RESPONSE_SUCCESS;
 }
-#endif /* !STUB_NAND_DISABLED */
+#endif /* 0 — NAND handlers moved to nand_plugin.c */
 
 void handle_command(const uint8_t *buffer, size_t size)
 {
@@ -1340,83 +1352,12 @@ void handle_command(const uint8_t *buffer, size_t size)
         */
         return;  // No response needed
 
-    case ESP_SPI_NAND_ATTACH:
-#ifndef STUB_NAND_DISABLED
-        s_spi_nand_attach(data, packet_size);
-#else
-        s_send_response(ESP_SPI_NAND_ATTACH, RESPONSE_INVALID_COMMAND, NULL);
-        return;
-#endif
-        break;
-
-    case ESP_SPI_NAND_READ_SPARE:
-#ifndef STUB_NAND_DISABLED
-        s_spi_nand_read_spare(data, packet_size);
-#else
-        s_send_response(ESP_SPI_NAND_READ_SPARE, RESPONSE_INVALID_COMMAND, NULL);
-        return;
-#endif
-        break;
-
-    case ESP_SPI_NAND_WRITE_SPARE:
-#ifndef STUB_NAND_DISABLED
-        s_spi_nand_write_spare(data, packet_size);
-#else
-        s_send_response(ESP_SPI_NAND_WRITE_SPARE, RESPONSE_INVALID_COMMAND, NULL);
-        return;
-#endif
-        break;
-
-    case ESP_SPI_NAND_READ_FLASH:
-#ifndef STUB_NAND_DISABLED
-        accumulated_result = s_spi_nand_read_flash(&ctx);
-#else
-        accumulated_result = RESPONSE_INVALID_COMMAND;
-#endif
-        break;
-
-    case ESP_SPI_NAND_WRITE_FLASH_BEGIN:
-#ifndef STUB_NAND_DISABLED
-        accumulated_result = s_spi_nand_write_flash_begin(&ctx);
-#else
-        accumulated_result = RESPONSE_INVALID_COMMAND;
-#endif
-        break;
-
-    case ESP_SPI_NAND_WRITE_FLASH_DATA:
-#ifndef STUB_NAND_DISABLED
-        accumulated_result = s_spi_nand_write_flash_data(&ctx);
-#else
-        accumulated_result = RESPONSE_INVALID_COMMAND;
-#endif
-        break;
-
-    case ESP_SPI_NAND_ERASE_FLASH:
-#ifndef STUB_NAND_DISABLED
-        accumulated_result = s_spi_nand_erase_flash(&ctx);
-#else
-        accumulated_result = RESPONSE_INVALID_COMMAND;
-#endif
-        break;
-
-    case ESP_SPI_NAND_ERASE_REGION:
-#ifndef STUB_NAND_DISABLED
-        accumulated_result = s_spi_nand_erase_region(&ctx);
-#else
-        accumulated_result = RESPONSE_INVALID_COMMAND;
-#endif
-        break;
-
-    case ESP_SPI_NAND_READ_PAGE_DEBUG:
-#ifndef STUB_NAND_DISABLED
-        s_spi_nand_read_page_debug(data, packet_size);
-#else
-        s_send_response(ESP_SPI_NAND_READ_PAGE_DEBUG, RESPONSE_INVALID_COMMAND, NULL);
-        return;
-#endif
-        break;
-
     default:
+        if (command >= PLUGIN_FIRST_OPCODE && command <= PLUGIN_LAST_OPCODE) {
+            int idx = command - PLUGIN_FIRST_OPCODE;
+            plugin_table[idx](command, data, packet_size);
+            return;  /* plugin handler already sent its own response */
+        }
         accumulated_result = RESPONSE_INVALID_COMMAND;
         break;
     }
