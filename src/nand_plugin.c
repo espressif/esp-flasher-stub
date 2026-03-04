@@ -57,8 +57,8 @@ static int s_nand_accumulated_result;  /* zero-initialised = RESPONSE_SUCCESS */
 /* ---- Response helper ------------------------------------------------------- */
 
 static void plugin_send_response(uint8_t command, int code,
-                                  uint32_t value,
-                                  const uint8_t *extra, uint16_t extra_len)
+                                 uint32_t value,
+                                 const uint8_t *extra, uint16_t extra_len)
 {
     uint8_t buf[PLUGIN_MAX_RESP_SIZE];
     memset(buf, 0, sizeof(buf));
@@ -122,7 +122,7 @@ void nand_plugin_attach(uint8_t command, const uint8_t *data, uint16_t size)
     const uint8_t *dbg_id    = nand_get_debug_id();
     const uint8_t *dbg_extra = nand_get_debug_extra();
     uint32_t val = ((uint32_t)dbg_extra[0] << 24) | ((uint32_t)dbg_id[0] << 16) |
-                   ((uint32_t)dbg_id[1] << 8)    |  (uint32_t)dbg_id[2];
+                   ((uint32_t)dbg_id[1] << 8)    | (uint32_t)dbg_id[2];
     uint8_t extra_byte = dbg_extra[1];
     plugin_send_response(command, RESPONSE_SUCCESS, val, &extra_byte, 1);
 }
@@ -219,7 +219,7 @@ void nand_plugin_read_flash(uint8_t command, const uint8_t *data, uint16_t size)
         }
 
         if (read_size_remaining > 0 &&
-            sent_packets - acked_packets < max_unacked_packets) {
+                sent_packets - acked_packets < max_unacked_packets) {
             uint32_t actual_read_size = read_size_remaining;
             if (actual_read_size > packet_size) {
                 actual_read_size = packet_size;
@@ -352,7 +352,7 @@ void nand_plugin_write_flash_data(uint8_t command, const uint8_t *data, uint16_t
 
     /* Pad and flush last partial page */
     if (s_nand_write_state.total_remaining == 0 &&
-        s_nand_write_state.page_buf_filled > 0) {
+            s_nand_write_state.page_buf_filled > 0) {
         memset(s_nand_write_state.page_buf + s_nand_write_state.page_buf_filled,
                0xFF, NAND_PAGE_SIZE - s_nand_write_state.page_buf_filled);
         s_nand_write_state.page_buf_filled = NAND_PAGE_SIZE;

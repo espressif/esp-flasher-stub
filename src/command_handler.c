@@ -74,8 +74,8 @@ static struct memory_operation_state s_memory_state = {0};
 
 /* Default plugin handler: returns RESPONSE_CMD_NOT_IMPLEMENTED */
 static void s_plugin_unsupported(uint8_t command,
-                                  const uint8_t *data,
-                                  uint16_t size)
+                                 const uint8_t *data,
+                                 uint16_t size)
 {
     (void)data; (void)size;
     /* Replicate s_send_response inline to avoid forward declaration */
@@ -93,7 +93,7 @@ static void s_plugin_unsupported(uint8_t command,
 
 /* Function Pointer Table — entries are patched by esptool when a plugin is loaded */
 plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE] = {
-    [0 ... (PLUGIN_TABLE_SIZE - 1)] = s_plugin_unsupported
+    [0 ...(PLUGIN_TABLE_SIZE - 1)] = s_plugin_unsupported
 };
 
 static int (*s_pending_post_process)(const struct cmd_ctx *ctx) = NULL;

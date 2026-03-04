@@ -62,9 +62,9 @@ def _get_symbol_addr(elf: PyELFFile, name: str) -> Optional[int]:
     return None
 
 
-def get_stub_sections(elf_file: str,
-                      plugin_name: Optional[str] = None,
-                      plugin_elf_file: Optional[str] = None) -> Dict[str, Union[int, bytes]]:
+def get_stub_sections(
+    elf_file: str, plugin_name: Optional[str] = None, plugin_elf_file: Optional[str] = None
+) -> Dict[str, Union[int, bytes]]:
     elf = esptool.bin_image.ELFFile(elf_file)
 
     t = elf.get_section('.text')
@@ -99,8 +99,7 @@ def get_stub_sections(elf_file: str,
     # ---- Plugin support -----------------------------------------------------
     if plugin_name is not None and plugin_elf_file is not None:
         if data_addr is None:
-            print('WARNING: Cannot add plugin metadata — no .data section in base stub.',
-                  file=sys.stderr)
+            print('WARNING: Cannot add plugin metadata — no .data section in base stub.', file=sys.stderr)
         else:
             # Find plugin_table symbol to compute FPT offset
             plugin_table_offset = None
@@ -111,8 +110,9 @@ def get_stub_sections(elf_file: str,
                     plugin_table_offset = addr - data_addr
 
             if plugin_table_offset is None:
-                print('WARNING: plugin_table symbol not found in base stub — '
-                      'FPT will not be patchable.', file=sys.stderr)
+                print(
+                    'WARNING: plugin_table symbol not found in base stub — FPT will not be patchable.', file=sys.stderr
+                )
                 plugin_table_offset = 0
 
             stub['plugin_first_opcode'] = PLUGIN_FIRST_OPCODE
@@ -123,14 +123,14 @@ def get_stub_sections(elf_file: str,
             with open(plugin_elf_file, 'rb') as pf:
                 p_elf = PyELFFile(pf)
                 p_text_sec = p_elf.get_section_by_name('.text')
-                p_bss_sec  = p_elf.get_section_by_name('.bss')
+                p_bss_sec = p_elf.get_section_by_name('.bss')
 
                 if p_text_sec is None:
                     raise SystemExit(f'ERROR: .text not found in plugin ELF {plugin_elf_file}')
 
-                p_text_data  = bytes(p_text_sec.data())
+                p_text_data = bytes(p_text_sec.data())
                 p_text_start = p_text_sec['sh_addr']
-                p_bss_size   = p_bss_sec['sh_size'] if p_bss_sec else 0
+                p_bss_size = p_bss_sec['sh_size'] if p_bss_sec else 0
 
                 # Align plugin .text to 4-byte boundary: Xtensa IRAM only supports
                 # 32-bit-width stores; the ROM memcpy tail-byte loop would fault.
@@ -143,8 +143,7 @@ def get_stub_sections(elf_file: str,
                 for opcode_str, sym_name in handler_map.items():
                     sym_addr = _get_symbol_addr(p_elf, sym_name)
                     if sym_addr is None:
-                        print(f'WARNING: handler symbol {sym_name} not found in plugin ELF',
-                              file=sys.stderr)
+                        print(f'WARNING: handler symbol {sym_name} not found in plugin ELF', file=sys.stderr)
                         continue
                     handlers[opcode_str] = sym_addr - p_text_start
 
@@ -164,12 +163,13 @@ def main():
     parser = argparse.ArgumentParser(description='Convert flasher stub ELF to JSON')
     parser.add_argument('elf_file', help='Base stub ELF file input')
     parser.add_argument('json_file', help='JSON file output')
-    parser.add_argument('--plugin', nargs=2, metavar=('NAME', 'PLUGIN_ELF'),
-                        help='Embed plugin data: --plugin <name> <plugin_elf>')
+    parser.add_argument(
+        '--plugin', nargs=2, metavar=('NAME', 'PLUGIN_ELF'), help='Embed plugin data: --plugin <name> <plugin_elf>'
+    )
     args = parser.parse_args()
 
     plugin_name = None
-    plugin_elf  = None
+    plugin_elf = None
     if args.plugin:
         plugin_name, plugin_elf = args.plugin
 
