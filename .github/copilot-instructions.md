@@ -6,6 +6,12 @@
 
 **Project Status**: Experimental - not yet ready for production use. This project aims to replace the [legacy flasher stub in esptool](https://github.com/espressif/esptool-legacy-flasher-stub/) with a modern, maintainable implementation using CMake and the esp-stub-lib library.
 
+**Documentation**: The project maintains developer-facing documentation in the `docs/` directory:
+- `docs/architecture.md` - Firmware architecture, source code structure, modules, and build system internals
+- `docs/development-guide.md` - Contributing guidelines, testing, CI/CD, and release process
+
+These are linked from the main `README.md`, which serves as the user guide.
+
 **Project Type**: Embedded C firmware with CMake build system
 **Languages**: C (firmware), Python (build tools, tests)
 **Size**: Small (~8 C source files, ~1600 lines main codebase)
@@ -219,8 +225,10 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `.astyle-rules.yml` - C code style configuration
 - `.check_copyright_config.yaml` - Copyright header validation config
 - `.gitignore` - Excludes: build*/, toolchains/, venv/, __pycache__
-- `README.md` - Main documentation
+- `README.md` - Main documentation with links to detailed guides in `docs/`
 - `CHANGELOG.md` - Release notes
+- `docs/architecture.md` - Firmware architecture, source code structure, modules, build system
+- `docs/development-guide.md` - Contributing guidelines, testing, CI/CD, release process
 
 ### Source Code Structure
 
@@ -365,8 +373,10 @@ When working on these areas, consider whether the TODO is actionable or requires
 
 5. **Update documentation if needed**:
    - If your PR adds or removes files, update the file lists in `.github/copilot-instructions.md` and `README.md` accordingly
-   - If your PR adds support for a new chip target, update the chip lists in `.github/copilot-instructions.md` and verify `tools/build_all_chips.sh` includes it
-   - Review whether `.github/copilot-instructions.md` or `README.md` need updates to reflect your changes (e.g., new build steps, changed dependencies, updated workflows)
+   - If your PR adds support for a new chip target, update the chip lists in `.github/copilot-instructions.md`, `README.md`, and verify `tools/build_all_chips.sh` includes it
+   - If your PR changes architecture, modules, or the build system, update `docs/architecture.md`
+   - If your PR changes contributing guidelines, testing, or CI/CD, update `docs/development-guide.md`
+   - Review whether `.github/copilot-instructions.md`, `README.md`, or files in `docs/` need updates to reflect your changes (e.g., new build steps, changed dependencies, updated workflows)
 
 ## Tips for Efficient Development
 
