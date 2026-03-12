@@ -137,8 +137,8 @@ static inline int s_ensure_flash_erased_to(uint32_t target_addr)
 {
     while (s_flash_state.next_erase_addr < target_addr) {
         int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
-                                                     &s_flash_state.erase_remaining);
-        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+                                                     &s_flash_state.erase_remaining, 0);
+        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_TIMEOUT) {
             return RESPONSE_FAILED_SPI_OP;
         }
     }
@@ -168,16 +168,18 @@ static int s_init_flash_operation(const uint8_t *buffer, uint16_t size, bool is_
         tinfl_init(&s_flash_state.decompressor);
     }
 
+    stub_lib_flash_config_t config;
+    stub_lib_flash_get_config(&config);
     // Calculate total erase size (round to nearest sector boundary)
-    uint32_t erase_start = ALIGN_DOWN(s_flash_state.offset, STUB_FLASH_SECTOR_SIZE);
-    uint32_t erase_end = ALIGN_UP(s_flash_state.offset + s_flash_state.total_remaining, STUB_FLASH_SECTOR_SIZE);
+    uint32_t erase_start = ALIGN_DOWN(s_flash_state.offset, config.sector_size);
+    uint32_t erase_end = ALIGN_UP(s_flash_state.offset + s_flash_state.total_remaining, config.sector_size);
     s_flash_state.erase_remaining = erase_end - erase_start;
     s_flash_state.next_erase_addr = erase_start;
 
     // Start the next erase operation, but do not wait for it to complete
     int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
-                                                 &s_flash_state.erase_remaining);
-    if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+                                                 &s_flash_state.erase_remaining, 0);
+    if (result != STUB_LIB_OK && result != STUB_LIB_ERR_TIMEOUT) {
         return RESPONSE_FAILED_SPI_OP;
     }
 
@@ -264,8 +266,8 @@ static int s_flash_defl_data_post_process(const struct cmd_ctx *ctx)
 
         /* Start opportunistic erase during decompression */
         int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
-                                                     &s_flash_state.erase_remaining);
-        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_FLASH_BUSY) {
+                                                     &s_flash_state.erase_remaining, 0);
+        if (result != STUB_LIB_OK && result != STUB_LIB_ERR_TIMEOUT) {
             return RESPONSE_FAILED_SPI_OP;
         }
 
@@ -800,14 +802,16 @@ static int s_erase_region(const struct cmd_ctx *ctx)
     ptr += sizeof(addr);
     uint32_t erase_size = get_le_to_u32(ptr);
 
-    uint64_t timeout_us = (erase_size + STUB_FLASH_SECTOR_SIZE - 1) / STUB_FLASH_SECTOR_SIZE * ERASE_PER_SECTOR_TIMEOUT_US;
+    stub_lib_flash_config_t config;
+    stub_lib_flash_get_config(&config);
+    uint64_t timeout_us = (erase_size + config.sector_size - 1) / config.sector_size * ERASE_PER_SECTOR_TIMEOUT_US;
 
-    if (addr % STUB_FLASH_SECTOR_SIZE || erase_size % STUB_FLASH_SECTOR_SIZE) {
+    if (addr % config.sector_size || erase_size % config.sector_size) {
         return RESPONSE_BAD_DATA_LEN;
     }
 
     while (erase_size > 0 && timeout_us > 0) {
-        stub_lib_flash_start_next_erase(&addr, &erase_size);
+        stub_lib_flash_start_next_erase(&addr, &erase_size, 0);
         stub_lib_delay_us(1);
         --timeout_us;
     }
