@@ -10,6 +10,7 @@
 #include <esp-stub-lib/bit_utils.h>
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/flash.h>
+#include <target/flash.h>
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/security.h>
@@ -19,6 +20,7 @@
 #include "commands.h"
 #include "command_handler.h"
 #include "endian_utils.h"
+#include "plugin_table.h"
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
@@ -69,6 +71,23 @@ struct command_response_data {
 
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
+
+static void s_send_response(uint8_t command, int response_code, const struct command_response_data *response_data);
+
+/* Default plugin handler: returns RESPONSE_CMD_NOT_IMPLEMENTED */
+static void s_plugin_unsupported(uint8_t command,
+                                 const uint8_t *data,
+                                 uint16_t size)
+{
+    (void)data; (void)size;
+    s_send_response(command, RESPONSE_CMD_NOT_IMPLEMENTED, NULL);
+}
+
+/* Function Pointer Table — entries are patched by esptool when a plugin is loaded */
+plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE] = {
+    [0 ...(PLUGIN_TABLE_SIZE - 1)] = s_plugin_unsupported
+};
+
 static int (*s_pending_post_process)(const struct cmd_ctx *ctx) = NULL;
 
 static inline int s_validate_checksum(const uint8_t *data, uint32_t size, uint32_t expected)
@@ -957,6 +976,11 @@ void handle_command(const uint8_t *buffer, size_t size)
         return;  // No response needed
 
     default:
+        if (command >= PLUGIN_FIRST_OPCODE && command <= PLUGIN_LAST_OPCODE) {
+            int idx = command - PLUGIN_FIRST_OPCODE;
+            plugin_table[idx](command, data, packet_size);
+            return;  /* plugin handler already sent its own response */
+        }
         accumulated_result = RESPONSE_INVALID_COMMAND;
         break;
     }

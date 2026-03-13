@@ -52,3 +52,4 @@
 
 [tool.codespell]
     write-changes = false
+    ignore-words-list = "fpt"
