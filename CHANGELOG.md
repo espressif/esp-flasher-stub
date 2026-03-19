@@ -1,3 +1,14 @@
+## v0.3.0 (2026-03-19)
+
+### ✨ New Features
+
+- **esp32c61**: Add large flash support *(Jaroslav Burian - 0cece56)*
+
+### 📖 Documentation
+
+- add initial documentation structure *(Roland Dobai - bc0066d)*
+
+
 ## v0.2.0 (2026-02-16)
 
 ### ✨ New Features
