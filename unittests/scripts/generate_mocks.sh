@@ -100,6 +100,14 @@ generate_mocks() {
     print_status "Generating mock for uart..."
     ruby CMock/scripts/create_mock.rb ../esp-stub-lib/include/esp-stub-lib/uart.h
 
+    # Generate mock for nand
+    print_status "Generating mock for nand..."
+    ruby CMock/scripts/create_mock.rb ../esp-stub-lib/src/target/base/include/target/nand.h
+
+    # Generate mock for slip
+    print_status "Generating mock for slip..."
+    ruby CMock/scripts/create_mock.rb ../src/slip.h
+
     print_status "Mock generation completed successfully!"
 }
 

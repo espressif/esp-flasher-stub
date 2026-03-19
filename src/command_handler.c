@@ -19,12 +19,12 @@
 #include "commands.h"
 #include "command_handler.h"
 #include "endian_utils.h"
+#include "plugin_table.h"
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
 
 #define RESPONSE_STATUS_SIZE 2
-#define MAX_RESPONSE_DATA_SIZE 64
 #define MAX_RESPONSE_SIZE (HEADER_SIZE + MAX_RESPONSE_DATA_SIZE + RESPONSE_STATUS_SIZE)
 
 /* Memory operation state */
@@ -60,15 +60,26 @@ struct cmd_ctx {
     const uint8_t *data;
 };
 
-/* Response data for commands that return data */
-struct command_response_data {
-    uint32_t value;
-    uint8_t data[MAX_RESPONSE_DATA_SIZE];
-    uint16_t data_size;
-};
-
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
+
+static void s_send_response(uint8_t command, int response_code, const struct command_response_data *response_data);
+
+/* Default plugin handler: returns RESPONSE_CMD_NOT_IMPLEMENTED */
+static int s_plugin_unsupported(uint8_t command,
+                                const uint8_t *data,
+                                uint32_t len,
+                                struct command_response_data *resp)
+{
+    (void)command; (void)data; (void)len; (void)resp;
+    return RESPONSE_CMD_NOT_IMPLEMENTED;
+}
+
+/* Function Pointer Table — entries are patched by esptool when a plugin is loaded */
+plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE] = {
+    [0 ...(PLUGIN_TABLE_SIZE - 1)] = s_plugin_unsupported
+};
+
 static int (*s_pending_post_process)(const struct cmd_ctx *ctx) = NULL;
 
 static inline int s_validate_checksum(const uint8_t *data, uint32_t size, uint32_t expected)
@@ -957,6 +968,12 @@ void handle_command(const uint8_t *buffer, size_t size)
         return;  // No response needed
 
     default:
+        if (command >= PLUGIN_FIRST_OPCODE && command <= PLUGIN_LAST_OPCODE) {
+            int idx = command - PLUGIN_FIRST_OPCODE;
+            memset(&response, 0, sizeof(response));
+            accumulated_result = plugin_table[idx](command, data, packet_size, &response);
+            break;
+        }
         accumulated_result = RESPONSE_INVALID_COMMAND;
         break;
     }

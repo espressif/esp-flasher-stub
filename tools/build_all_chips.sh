@@ -25,9 +25,20 @@ ALL_CHIPS=(
 )
 
 for chip in "${ALL_CHIPS[@]}"; do
+    echo "========================================="
     echo "Building for $chip"
+    echo "========================================="
     DIR=build-$chip
+
+    # Pass 1: build base stub ELF
     mkdir -p "$DIR"
-    cmake -G Ninja -B "$DIR" -DTARGET_CHIP=$chip --fresh
-    ninja -C "$DIR"
+    cmake -G Ninja -B "$DIR" -DTARGET_CHIP=$chip --fresh -Wno-dev
+    ninja -C "$DIR" "stub-$chip"
+
+    # Pass 2: re-configure (CMake runs compute_plugin_addrs.py to generate plugin_addrs.cmake
+    # now that the base ELF exists), then build the plugin and regenerate the JSON
+    if [ "$chip" != "esp8266" ] && [ "$chip" != "esp32" ]; then
+        cmake -B "$DIR" -DTARGET_CHIP=$chip -Wno-dev
+        ninja -C "$DIR"
+    fi
 done

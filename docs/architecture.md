@@ -21,6 +21,12 @@ The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chi
 │  └──────────┘  └───────────────┘  └────────┬─────────┘  │
 │                                            │            │
 │                                   ┌────────▼─────────┐  │
+│                                   │  Plugin (FPT)    │  │
+│                                   │ (optional, e.g.  │  │
+│                                   │  NAND plugin)    │  │
+│                                   └────────┬─────────┘  │
+│                                            │            │
+│                                   ┌────────▼─────────┐  │
 │                                   │   esp-stub-lib   │  │
 │                                   │  (flash, UART,   │  │
 │                                   │   security, …)   │  │
@@ -37,9 +43,11 @@ src/
 ├── command_handler.c   Command parsing, dispatch, and response
 ├── command_handler.h   Public API and buffer size definitions
 ├── commands.h          Command IDs and response codes
+├── plugin_table.h      Function Pointer Table ABI (plugin system)
+├── nand_plugin.c       NAND flash plugin (9 handlers, ESP32-S3 only)
 ├── transport.c / .h    Transport detection and initialization
 ├── endian_utils.h      Byte-order conversion helpers
-└── ld/                 Linker scripts (one per chip + common.ld)
+└── ld/                 Linker scripts (one per chip + common.ld + nand_plugin.ld)
 ```
 
 ## Build System
@@ -74,3 +82,16 @@ INCLUDE common.ld
 ```
 
 The `common.ld` file defines sections (`.text`, `.bss`, `.data`) and sets the entry point to `esp_main`.
+
+## Plugin System
+
+The stub supports runtime-loadable plugins that extend the command set. Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array in the base stub's `.data` segment, indexed by opcode (range `0xD5`–`0xEF`). At startup all entries default to `s_plugin_unsupported`. esptool patches the relevant entries and uploads the plugin binary before handing off control.
+
+For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the build uses a **two-pass** process:
+
+1. Build the base stub ELF (Pass 1).
+2. `tools/compute_plugin_addrs.py` computes plugin load addresses from the base ELF sizes.
+3. Build the plugin ELF linked at those addresses (Pass 2).
+4. `tools/elf2json.py` embeds the plugin into the JSON stub file.
+
+For the full guide including how to add a new plugin, see [Plugin System](plugin-system.md).

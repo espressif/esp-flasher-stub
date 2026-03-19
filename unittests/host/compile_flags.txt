@@ -1,0 +1,7 @@
+-I../Unity/src
+-I../../src
+-I../../esp-stub-lib/include
+-I../../esp-stub-lib/include/esp-stub-lib
+-I../../esp-stub-lib/src/target/base/include
+-I../../esp-stub-lib/src/target/base/include/target
+-std=gnu17
