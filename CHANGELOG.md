@@ -1,3 +1,10 @@
+## v0.4.0 (2026-03-24)
+
+### ✨ New Features
+
+- add plugin support for loading optional features on request *(Roland Dobai - 966ce00)*
+
+
 ## v0.3.0 (2026-03-19)
 
 ### ✨ New Features
