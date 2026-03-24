@@ -40,7 +40,9 @@ jobs:
       - name: Upload stub JSONs
         uses: actions/upload-artifact@v4
         with:
-          path: build*/esp*.json
+          path: |
+            build*/esp*.json
+            !build*/*.base.json
           if-no-files-found: error
           retention-days: 3
 
@@ -85,4 +87,6 @@ jobs:
           draft: true
           prerelease: false
           fail_on_unmatched_files: true
-          files: artifact/build*/esp*.json
+          files: |-
+            artifact/build*/esp*.json
+            !artifact/build*/*.base.json
