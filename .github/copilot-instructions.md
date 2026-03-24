@@ -41,10 +41,10 @@ This initializes three submodules:
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install esptool pyelftools
+pip install pyelftools
 ```
 
-**CRITICAL**: The `esptool` and `pyelftools` packages are **required** for the build process (used by `tools/elf2json.py` to convert ELF to JSON). The build will fail at the post-build step without them.
+**CRITICAL**: The `pyelftools` package is **required** for the build process (used by `tools/elf2json.py` to convert ELF to JSON). The build will fail at the post-build step without it.
 
 **ALWAYS** activate the venv in every terminal session:
 ```bash
@@ -191,7 +191,7 @@ For Python files:
    - Steps:
      1. Checkout with recursive submodules
      2. Set up Python 3.13
-     3. Install esptool and pyelftools via pip
+     3. Install pyelftools via pip
      4. Install toolchains via `tools/setup_toolchains.sh`
      5. Export toolchains and build all chips via `tools/build_all_chips.sh`
      6. Upload JSON artifacts
@@ -283,7 +283,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - **esp-stub-lib dependency**: Main source depends on esp-stub-lib for flash, UART, and chip-specific operations
 - **CMake target configuration**: `cmake/esp-targets.cmake` determines toolchain and compiler flags based on TARGET_CHIP
 - **Linker scripts**: Each chip has a specific linker script in `src/ld/{chip}.ld`
-- **Post-build processing**: `tools/elf2json.py` requires esptool and pyelftools; called automatically after build
+- **Post-build processing**: `tools/elf2json.py` requires pyelftools; called automatically after build
 - **Two-pass plugin build**: Chips with plugin support (all except esp8266 and esp32) use a two-pass build: Pass 1 builds the base stub ELF, Pass 2 computes plugin addresses and builds the plugin ELF
 - **Chip support**: cmake defines 14 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266), but build_all_chips.sh only builds 13 (excludes esp32h21)
 
@@ -295,11 +295,11 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 cmake . -B build -G Ninja -DTARGET_CHIP=esp32s2
 ```
 
-### Issue: Build fails with "esptool not found" or "pyelftools not found"
+### Issue: Build fails with "pyelftools not found"
 **Solution**: Activate venv and install dependencies
 ```bash
 source venv/bin/activate
-pip install esptool pyelftools
+pip install pyelftools
 ```
 
 ### Issue: Toolchain compiler not found
@@ -380,7 +380,7 @@ When working on these areas, consider whether the TODO is actionable or requires
 
 1. **Trust these instructions**: They are validated and tested. Only search for additional information if something fails or is unclear.
 
-2. **Always activate venv first**: Most commands require esptool or other Python packages from the venv.
+2. **Always activate venv first**: Most commands require pyelftools or other Python packages from the venv.
 
 3. **Use build_all_chips.sh for comprehensive testing**: Before submitting PRs with firmware changes, run `./tools/build_all_chips.sh` to ensure all chips build.
 
