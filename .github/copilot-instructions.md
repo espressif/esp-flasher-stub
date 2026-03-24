@@ -9,12 +9,13 @@
 **Documentation**: The project maintains developer-facing documentation in the `docs/` directory:
 - `docs/architecture.md` - Firmware architecture, source code structure, modules, and build system internals
 - `docs/development-guide.md` - Contributing guidelines, testing, CI/CD, and release process
+- `docs/plugin-system.md` - Plugin architecture, FPT design, and guide for adding new plugins
 
 These are linked from the main `README.md`, which serves as the user guide.
 
 **Project Type**: Embedded C firmware with CMake build system
 **Languages**: C (firmware), Python (build tools, tests)
-**Size**: Small (~8 C source files, ~1600 lines main codebase)
+**Size**: Small (~11 C source files, ~2000 lines main codebase)
 **Target Chips**: esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266
 **Build Time**: ~0.5-1.5 seconds per chip, ~10-16 seconds for all chips built by build_all_chips.sh (13 chips)
 
@@ -40,10 +41,10 @@ This initializes three submodules:
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install esptool
+pip install esptool pyelftools
 ```
 
-**CRITICAL**: The `esptool` package is **required** for the build process (used by `tools/elf2json.py` to convert ELF to JSON). The build will fail at the post-build step without it.
+**CRITICAL**: The `esptool` and `pyelftools` packages are **required** for the build process (used by `tools/elf2json.py` to convert ELF to JSON). The build will fail at the post-build step without them.
 
 **ALWAYS** activate the venv in every terminal session:
 ```bash
@@ -87,7 +88,7 @@ cd unittests/host
 **Build Time**: ~10-20 seconds (includes CMake config, mock generation, ninja build, CTest run)
 **Dependencies**: gcc, cmake, ninja-build, ruby
 
-This runs native unit tests with CMock/Unity frameworks and validates core functionality (SLIP protocol, etc.).
+This runs native unit tests with CMock/Unity frameworks and validates core functionality (SLIP protocol, NAND plugin, plugin FPT dispatch).
 
 ### Build Firmware for Single Chip
 
@@ -118,15 +119,12 @@ source ./tools/export_toolchains.sh
 ./tools/build_all_chips.sh
 ```
 
-**Build Time**: ~10-15 seconds for all 13 chips built by build_all_chips.sh (note: cmake defines 14 total chips, but only 13 are in the build script)
+**Build Time**: ~10-15 seconds for all 13 chips (note: cmake defines 14 total targets, but build script excludes esp32h21)
 **Output**: Creates `build-{chip}/` directories for each chip with ELF and JSON files
 
-This script:
-1. Iterates through all supported chips
-2. Creates separate build directories for each chip
-3. Runs CMake with `--fresh` flag for clean builds
-4. Builds with Ninja
-5. Runs `tools/elf2json.py` post-build to generate JSON
+This script uses a **two-pass build** process:
+1. **Pass 1 (all chips)**: Configures CMake with `--fresh`, builds base stub ELF
+2. **Pass 2 (non-ESP8266, non-ESP32)**: Re-configures CMake so `compute_plugin_addrs.py` generates `plugin_addrs.cmake` from the base ELF, then builds the plugin ELF and regenerates JSON
 
 ## Pre-commit Hooks and Validation
 
@@ -148,11 +146,12 @@ The `.pre-commit-config.yaml` configures these checks:
 5. **check-executables-have-shebangs** - Validates shell scripts
 6. **mixed-line-ending** - Enforces LF line endings
 7. **double-quote-string-fixer** - Fixes string quotes
-8. **ruff** - Python linter and formatter
-9. **mypy** - Python type checking
-10. **yamlfix** - YAML formatting
-11. **conventional-precommit-linter** - Commit message format validation
-12. **astyle_py** - C code formatting (astyle version 3.4.7)
+8. **ruff** - Python linter with auto-fix
+9. **ruff-format** - Python code formatting
+10. **mypy** - Python type checking
+11. **yamlfix** - YAML formatting
+12. **conventional-precommit-linter** - Commit message format validation
+13. **astyle_py** - C code formatting (astyle version 3.4.7)
 
 ### Manual Pre-commit Run
 
@@ -192,7 +191,7 @@ For Python files:
    - Steps:
      1. Checkout with recursive submodules
      2. Set up Python 3.13
-     3. Install esptool via pip
+     3. Install esptool and pyelftools via pip
      4. Install toolchains via `tools/setup_toolchains.sh`
      5. Export toolchains and build all chips via `tools/build_all_chips.sh`
      6. Upload JSON artifacts
@@ -229,16 +228,20 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `CHANGELOG.md` - Release notes
 - `docs/architecture.md` - Firmware architecture, source code structure, modules, build system
 - `docs/development-guide.md` - Contributing guidelines, testing, CI/CD, release process
+- `docs/plugin-system.md` - Plugin architecture, FPT design, adding new plugins
 
 ### Source Code Structure
 
 **`src/`** - Main firmware source
-- `main.c` - Entry point (`esp_main()` function), BSS initialization, flash init, SLIP protocol loop
-- `slip.c/h` - SLIP protocol implementation for framing data over UART
-- `command_handler.c/h` - Command parsing and dispatch
-- `commands.h` - Command ID definitions
-- `transport.c/h` - UART/USB-JTAG transport layer
-- `ld/` - Linker scripts: one for each chip target (13 chip-specific scripts) plus `common.ld` included by all chip scripts
+- `main.c` - Entry point (`esp_main()`), BSS initialization, transport detection, SLIP protocol loop
+- `slip.c/h` - SLIP protocol implementation with double-buffering for framing data over UART
+- `command_handler.c/h` - Command parsing, dispatch, flash/memory operations, Adler-32 checksums, zlib decompression
+- `commands.h` - Command opcode definitions (0x02-0x14 standard, 0xD0-0xDD plugin/NAND)
+- `transport.c/h` - UART, USB-OTG, and USB-Serial-JTAG transport layer abstraction
+- `nand_plugin.c` - NAND flash plugin handlers (9 operations: attach, read/write BBM, flash I/O, erase)
+- `plugin_table.h` - Function Pointer Table (FPT) ABI definition for plugin dispatch
+- `endian_utils.h` - Byte-order conversion helpers for command parsing
+- `ld/` - Linker scripts: 14 chip-specific scripts, `common.ld` (shared sections), and `nand_plugin.ld`
 
 **`cmake/`**
 - `esp-targets.cmake` - ESP chip definitions, toolchain configuration functions, target-specific compiler flags
@@ -259,6 +262,8 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `host/` - Native unit tests (run on build machine with mocks)
   - `run-tests.sh` - Test runner script
   - `TestSlip.c` - SLIP protocol tests
+  - `TestNandPlugin.c` - NAND plugin handler tests
+  - `TestPluginFPT.c` - Plugin FPT dispatch tests
   - `cmock_config.yml` - CMock configuration
   - `CMakeLists.txt` - Host test build configuration
   - `soc/` - Mock SOC headers for host tests
@@ -278,7 +283,8 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - **esp-stub-lib dependency**: Main source depends on esp-stub-lib for flash, UART, and chip-specific operations
 - **CMake target configuration**: `cmake/esp-targets.cmake` determines toolchain and compiler flags based on TARGET_CHIP
 - **Linker scripts**: Each chip has a specific linker script in `src/ld/{chip}.ld`
-- **Post-build processing**: `tools/elf2json.py` requires esptool and is called automatically after build
+- **Post-build processing**: `tools/elf2json.py` requires esptool and pyelftools; called automatically after build
+- **Two-pass plugin build**: Chips with plugin support (all except esp8266 and esp32) use a two-pass build: Pass 1 builds the base stub ELF, Pass 2 computes plugin addresses and builds the plugin ELF
 - **Chip support**: cmake defines 14 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266), but build_all_chips.sh only builds 13 (excludes esp32h21)
 
 ## Common Issues and Workarounds
@@ -289,11 +295,11 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 cmake . -B build -G Ninja -DTARGET_CHIP=esp32s2
 ```
 
-### Issue: Build fails with "esptool not found"
-**Solution**: Activate venv and install esptool
+### Issue: Build fails with "esptool not found" or "pyelftools not found"
+**Solution**: Activate venv and install dependencies
 ```bash
 source venv/bin/activate
-pip install esptool
+pip install esptool pyelftools
 ```
 
 ### Issue: Toolchain compiler not found
@@ -331,17 +337,9 @@ pre-commit run astyle_py --all-files
 
 ### Known TODOs in Codebase
 
-The following TODOs exist in the codebase:
-
-**src/command_handler.c** (lines 213, 218, 300, 563, 905):
-- Cleanup procedures for flash operations
-- Reboot command implementation
-- Delay consideration for flash operations
-- Reboot command implementation (duplicate entry)
-- WDT reset implementation for system reset
-
-**src/transport.c** (line 58):
-- Proper fix needed for zero-length packet handling
+**src/command_handler.c**:
+- Reboot command implementation (`ESP_RUN_USER_CODE` handler) — two occurrences
+- WDT reset for system reset (alternative reset mechanism)
 
 When working on these areas, consider whether the TODO is actionable or requires broader design decisions.
 
