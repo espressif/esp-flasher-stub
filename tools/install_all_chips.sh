@@ -20,6 +20,7 @@ echo "Installing JSON stub files to: $ESPTOOL_STUBS_DIR"
 # Find all JSON files in build-* directories
 FOUND=0
 for json_file in build-*/*.json; do
+    [[ "$json_file" == *.base.json ]] && continue
     if [[ -f "$json_file" ]]; then
         echo "Installing $json_file"
         cp "$json_file" "$ESPTOOL_STUBS_DIR/"

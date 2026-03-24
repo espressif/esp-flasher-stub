@@ -32,10 +32,16 @@ add_custom_command(
            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.c
            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.h
            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.c
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.h
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.c
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.h
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.c
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_mocks.sh
     DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/rom_wrappers.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/uart.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/src/target/base/include/target/nand.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../src/slip.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_mocks.sh
         ${CMOCK_ROOT}/scripts/create_mock.rb
         ${CMOCK_ROOT}/lib/cmock.rb
@@ -48,6 +54,10 @@ add_custom_target(generate_mocks
             ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_rom_wrappers.c
             ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.h
             ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_uart.c
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.h
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.c
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.h
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.c
 )
 
 # Helper function to add host tests
@@ -102,6 +112,61 @@ add_host_test(TestSlip
         TestSlip.c
         ../../src/slip.c
 )
+
+# TestNandPlugin — tests nand_plugin.c handlers using mocked nand
+# Handlers return int and fill command_response_data; no SLIP framing in handlers.
+add_executable(TestNandPlugin
+    TestNandPlugin.c
+    ../../src/nand_plugin.c
+    ${UNITY_SOURCES}
+    ${CMOCK_SOURCES}
+    ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.c
+)
+
+target_include_directories(TestNandPlugin PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/src/target/base/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/src/target/base/include/target
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib
+    ${UNITY_ROOT}/src
+    ${CMOCK_ROOT}/src
+    ${CMAKE_CURRENT_BINARY_DIR}/mocks
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_dependencies(TestNandPlugin generate_mocks)
+
+add_test(NAME TestNandPlugin COMMAND TestNandPlugin)
+set_tests_properties(TestNandPlugin PROPERTIES
+    TIMEOUT 10
+    LABELS "host_test;unit_test"
+)
+
+message(STATUS "Added host test: TestNandPlugin (timeout: 10s)")
+
+# TestPluginFPT — tests plugin Function Pointer Table dispatch.
+# Verifies that unpatched slots return RESPONSE_CMD_NOT_IMPLEMENTED and that
+# patched slots call the registered handler with correct arguments and
+# propagate its return value and response payload.
+# No SLIP or flash mocks needed: the test exercises plugin_table[] directly.
+add_executable(TestPluginFPT
+    TestPluginFPT.c
+    ${UNITY_SOURCES}
+)
+
+target_include_directories(TestPluginFPT PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src
+    ${UNITY_ROOT}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+add_test(NAME TestPluginFPT COMMAND TestPluginFPT)
+set_tests_properties(TestPluginFPT PROPERTIES
+    TIMEOUT 10
+    LABELS "host_test;unit_test"
+)
+
+message(STATUS "Added host test: TestPluginFPT (timeout: 10s)")
 
 # Configuration summary
 message(STATUS "Host tests configuration:")
