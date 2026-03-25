@@ -102,7 +102,7 @@ Before submitting a pull request:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| Build and Release | Push, PR | Build firmware for all chips; create releases on tags |
+| Build and Release | Push, PR | Build firmware for all chips; post stub size report on PRs; create releases on tags |
 | Host Tests | Push | Run native unit tests |
 | DangerJS | PR | Validate PR style and conventions |
 | Jira | PR | Sync with Jira issue tracker |
@@ -133,5 +133,6 @@ Create a pull request and edit the automatically created draft release on the [r
 | `tools/setup_toolchains.sh` | Download and extract cross-compilation toolchains |
 | `tools/export_toolchains.sh` | Add toolchain directories to `PATH` (must be sourced) |
 | `tools/elf2json.py` | Convert ELF binary to JSON format for esptool; embeds plugin data when `--plugin` is specified |
+| `tools/compare_sizes.py` | Compare stub segment sizes between two builds; used by CI to post size reports on PRs |
 | `tools/compute_plugin_addrs.py` | Compute plugin load addresses from base stub ELF (used in two-pass build) |
 | `tools/install_all_chips.sh` | Copy built JSON files into an esptool installation |

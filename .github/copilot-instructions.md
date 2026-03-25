@@ -195,7 +195,8 @@ For Python files:
      4. Install toolchains via `tools/setup_toolchains.sh`
      5. Export toolchains and build all chips via `tools/build_all_chips.sh`
      6. Upload JSON artifacts
-     7. Create GitHub release (on tags only)
+     7. Post stub size comparison report on PRs (via `tools/compare_sizes.py`)
+     8. Create GitHub release (on tags only)
 
 2. **Host Tests** (`.github/workflows/host_tests.yml`)
    - Runs on: push
@@ -251,6 +252,8 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `setup_toolchains.sh` - Downloads and extracts toolchains
 - `export_toolchains.sh` - Adds toolchains to PATH (must be sourced)
 - `elf2json.py` - Converts ELF binaries to JSON format for esptool
+- `compare_sizes.py` - Compares stub segment sizes between two builds; used by CI to post size reports on PRs
+- `compute_plugin_addrs.py` - Computes plugin load addresses from base stub ELF (used in two-pass build)
 - `install_all_chips.sh` - Copies built JSON files to esptool directory (requires ESPTOOL_STUBS_DIR env var)
 
 **`esp-stub-lib/`** (submodule)
