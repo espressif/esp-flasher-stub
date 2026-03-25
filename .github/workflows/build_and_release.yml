@@ -168,6 +168,4 @@ jobs:
           draft: true
           prerelease: false
           fail_on_unmatched_files: true
-          files: |-
-            stub-jsons/build*/esp*.json
-            !stub-jsons/build*/*.base.json
+          files: stub-jsons/build*/esp*.json
