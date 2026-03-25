@@ -140,6 +140,15 @@ else
     print_status "Mode: BUILD + HARDWARE TESTING (port: $TEST_PORT, timeout: ${TEST_TIMEOUT}s)"
 fi
 
+# Check that esptool is available (required for elf2image and load_ram)
+if ! python3 -c "import esptool" 2>/dev/null; then
+    print_error "esptool Python module not found."
+    print_error "Target tests require esptool to convert and upload ELF binaries to hardware."
+    print_error "Install it with: pip install esptool"
+    print_error "Note: Host tests (unittests/host/) do not require esptool."
+    exit 1
+fi
+
 # Build target tests
 build_target_tests() {
     print_status "Building target tests for $TARGET_CHIP..."

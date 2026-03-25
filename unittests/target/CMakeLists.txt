@@ -47,6 +47,22 @@ if(NOT PYTHON3)
     message(FATAL_ERROR "Python not found. Please install Python and ensure it's in your PATH.")
 endif()
 
+# Check that esptool is available as a Python module (required for elf2image)
+execute_process(
+    COMMAND ${PYTHON3} -m esptool version
+    RESULT_VARIABLE ESPTOOL_CHECK_RESULT
+    OUTPUT_QUIET
+    ERROR_QUIET
+)
+if(NOT ESPTOOL_CHECK_RESULT EQUAL 0)
+    message(FATAL_ERROR
+        "esptool Python module not found. Target tests require esptool to convert ELF files "
+        "to loadable binaries via 'elf2image'.\n"
+        "Install it with: pip install esptool\n"
+        "Note: Host tests (unittests/host/) do not require esptool."
+    )
+endif()
+
 set(ESPTOOL ${PYTHON3} -m esptool)
 
 # Test framework paths

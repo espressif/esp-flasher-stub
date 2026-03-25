@@ -52,20 +52,26 @@ Then source the export script in every terminal where the project is used:
 . ./tools/export_toolchains.sh
 ```
 
-### Esptool
+### Python Dependencies
 
-[Esptool](https://github.com/espressif/esptool/) is needed for ELF file analysis. Install it in a virtual environment:
+[pyelftools](https://github.com/eliben/pyelftools) is needed for ELF file analysis. Install it in a virtual environment:
 
 ```sh
 python -m venv venv
 source venv/bin/activate
-pip install esptool pyelftools
+pip install pyelftools
 ```
 
 Activate the virtual environment in every terminal where the project is used:
 ```sh
 source venv/bin/activate
 ```
+
+> [!NOTE]
+> **Target tests only:** Running or building the target tests in `unittests/target/` additionally
+> requires [esptool](https://github.com/espressif/esptool/) (`pip install esptool`). It is used
+> to convert compiled ELF files to loadable binaries (`elf2image`) and to upload them to hardware
+> (`load_ram`). Host tests (`unittests/host/`) have no esptool dependency.
 
 ## How to Build
 

@@ -12,11 +12,6 @@ from pathlib import Path
 from typing import Dict, Optional, Union
 
 try:
-    import esptool
-except ImportError:
-    raise SystemExit('Esptool not found. Please check the README for installation instructions.')
-
-try:
     from elftools.elf.elffile import ELFFile as PyELFFile
     from elftools.elf.sections import SymbolTableSection
 except ImportError:
@@ -72,31 +67,37 @@ def get_stub_sections(
     plugin_elf_file: Optional[str] = None,
     plugins: Optional[list] = None,
 ) -> Dict[str, Union[int, bytes]]:
-    elf = esptool.bin_image.ELFFile(elf_file)
+    with open(elf_file, 'rb') as f:
+        elf = PyELFFile(f)
 
-    t = elf.get_section('.text')
-    stub = {
-        'entry': elf.entrypoint,
-        'text': t.data,
-        'text_start': t.addr,
-    }
-    stub_text_len = len(t.data)
+        t = elf.get_section_by_name('.text')
+        if t is None:
+            raise SystemExit(f'ERROR: .text section not found in {elf_file}')
+        stub = {
+            'entry': elf.header.e_entry,
+            'text': bytes(t.data()),
+            'text_start': t['sh_addr'],
+        }
+        stub_text_len = len(stub['text'])
 
-    data_addr = None
-    try:
-        d = elf.get_section('.data')
-        stub['data'] = d.data
-        stub['data_start'] = d.addr
-        data_addr = d.addr
-    except ValueError:
-        print(f'WARNING: {elf_file} does not contain a .data section.', file=sys.stderr)
+        data_addr = None
+        d = elf.get_section_by_name('.data')
+        if d is not None:
+            data_bytes = bytes(d.data())
+            overreach = len(data_bytes) % 4
+            if overreach:
+                data_bytes += b'\x00' * (4 - overreach)
+            stub['data'] = data_bytes
+            stub['data_start'] = d['sh_addr']
+            data_addr = d['sh_addr']
+        else:
+            print(f'WARNING: {elf_file} does not contain a .data section.', file=sys.stderr)
 
-    for s in elf.nobits_sections:
-        if s.name == '.bss':
-            stub['bss_start'] = s.addr
-            break
-    else:
-        print(f'WARNING: {elf_file} does not contain a .bss section.', file=sys.stderr)
+        bss = elf.get_section_by_name('.bss')
+        if bss is not None:
+            stub['bss_start'] = bss['sh_addr']
+        else:
+            print(f'WARNING: {elf_file} does not contain a .bss section.', file=sys.stderr)
 
     # Align .text to 4-byte boundary
     bytes_overreach = stub_text_len % 4
