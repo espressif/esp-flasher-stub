@@ -83,11 +83,20 @@ jobs:
             --json databaseId \
             --jq '.[0].databaseId' 2>/dev/null || true)
           if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
-            gh run download "$RUN_ID" \
+            # Must match upload-artifact name: stub-jsons or artifact
+            if gh run download "$RUN_ID" \
+              --repo "${{ github.repository }}" \
+              --name stub-jsons \
+              --dir master-artifacts 2>/dev/null; then
+              echo "Downloaded master artifacts from run $RUN_ID (stub-jsons)"
+            elif gh run download "$RUN_ID" \
               --repo "${{ github.repository }}" \
               --name artifact \
-              --dir master-artifacts
-            echo "Downloaded master artifacts from run $RUN_ID"
+              --dir master-artifacts 2>/dev/null; then
+              echo "Downloaded master artifacts from run $RUN_ID (artifact)"
+            else
+              echo "::notice::Run $RUN_ID has no stub-jsons/artifact download; skipping master comparison"
+            fi
           else
             echo "::notice::No successful master build found for comparison"
           fi
@@ -168,6 +177,4 @@ jobs:
           draft: true
           prerelease: false
           fail_on_unmatched_files: true
-          files: |-
-            stub-jsons/build*/esp*.json
-            !stub-jsons/build*/*.base.json
+          files: stub-jsons/build*/esp*.json
