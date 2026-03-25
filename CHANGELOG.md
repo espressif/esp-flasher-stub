@@ -1,3 +1,14 @@
+## v0.5.0 (2026-03-25)
+
+### ✨ New Features
+
+- **esp32-p4**: Support ECO7 (rev3.2) *(Radim Karniš - c8a372d)*
+
+### 🔧 Code Refactoring
+
+- remove esptool build dependency, use pyelftools directly *(Roland Dobai - 371cc6c)*
+
+
 ## v0.4.0 (2026-03-24)
 
 ### ✨ New Features
