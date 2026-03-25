@@ -40,11 +40,90 @@ jobs:
       - name: Upload stub JSONs
         uses: actions/upload-artifact@v4
         with:
+          name: stub-jsons
           path: |
             build*/esp*.json
             !build*/*.base.json
           if-no-files-found: error
           retention-days: 3
+
+  size_report:
+    name: Stub Size Report
+    needs: build_stubs
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Download PR artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: stub-jsons
+          path: pr-artifacts
+
+      - name: Download master artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fetch the latest successful build on master from this same workflow
+          RUN_ID=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow build_and_release.yml \
+            --branch master \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId' 2>/dev/null || true)
+          if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
+            gh run download "$RUN_ID" \
+              --repo "${{ github.repository }}" \
+              --name artifact \
+              --dir master-artifacts
+            echo "Downloaded master artifacts from run $RUN_ID"
+          else
+            echo "::notice::No successful master build found for comparison"
+          fi
+
+      - name: Generate and post size report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -d master-artifacts ]; then
+            REPORT=$(python tools/compare_sizes.py \
+              --master-dir master-artifacts \
+              --pr-dir pr-artifacts)
+          else
+            REPORT=$(python tools/compare_sizes.py \
+              --pr-dir pr-artifacts)
+          fi
+
+          MARKER='<!-- stub-size-report -->'
+          BODY="${MARKER}"$'\n'"${REPORT}"
+
+          # Find existing size-report comment (if any)
+          COMMENT_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" \
+            | head -n1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api \
+              "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              --method PATCH --field body="$BODY"
+          else
+            gh pr comment "$PR_NUMBER" \
+              --repo "${{ github.repository }}" \
+              --body "$BODY"
+          fi
 
   create_release:
     name: Create GitHub release
@@ -76,6 +155,8 @@ jobs:
           cat changelog_body.md
       - name: Download stub JSONs
         uses: actions/download-artifact@v4
+        with:
+          name: stub-jsons
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -88,5 +169,5 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           files: |-
-            artifact/build*/esp*.json
-            !artifact/build*/*.base.json
+            stub-jsons/build*/esp*.json
+            !stub-jsons/build*/*.base.json
