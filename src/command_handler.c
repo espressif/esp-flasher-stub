@@ -10,6 +10,7 @@
 #include <esp-stub-lib/bit_utils.h>
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/flash.h>
+#include <target/flash.h>
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/security.h>

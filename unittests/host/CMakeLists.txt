@@ -36,13 +36,17 @@ add_custom_command(
            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.c
            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.h
            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.c
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_md5.h
+           ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_md5.c
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_mocks.sh
     DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/rom_wrappers.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/uart.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/src/target/base/include/target/nand.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../../src/slip.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/md5.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_mocks.sh
+        ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/create_mock_with_callbacks.rb
         ${CMOCK_ROOT}/scripts/create_mock.rb
         ${CMOCK_ROOT}/lib/cmock.rb
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -58,6 +62,8 @@ add_custom_target(generate_mocks
             ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.c
             ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.h
             ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.c
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_md5.h
+            ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_md5.c
 )
 
 # Helper function to add host tests
@@ -113,14 +119,23 @@ add_host_test(TestSlip
         ../../src/slip.c
 )
 
-# TestNandPlugin — tests nand_plugin.c handlers using mocked nand
-# Handlers return int and fill command_response_data; no SLIP framing in handlers.
+# TestNandPlugin — tests nand_plugin.c handlers using mocked nand, slip, and md5.
+# Handlers are void and send SLIP frames directly via slip_send_frame().
 add_executable(TestNandPlugin
     TestNandPlugin.c
     ../../src/nand_plugin.c
     ${UNITY_SOURCES}
     ${CMOCK_SOURCES}
     ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.c
+    ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.c
+    ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_md5.c
+)
+
+# Disable -Warray-parameter for mock_md5.c: stub_lib_md5_final has
+# uint8_t digest[16] which CMock generates as uint8_t *digest.
+set_source_files_properties(
+    ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_md5.c
+    PROPERTIES COMPILE_FLAGS "-Wno-array-parameter"
 )
 
 target_include_directories(TestNandPlugin PRIVATE
