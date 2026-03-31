@@ -1,3 +1,10 @@
+## v0.5.1 (2026-03-31)
+
+### 🐛 Bug Fixes
+
+- **esp32-p4**: Fix ECO7 early guru meditation errors during boot up *(Radim Karniš - 3f56de2)*
+
+
 ## v0.5.0 (2026-03-25)
 
 ### ✨ New Features
