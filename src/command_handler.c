@@ -10,6 +10,7 @@
 #include <esp-stub-lib/bit_utils.h>
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/flash.h>
+#include <target/flash.h>
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/security.h>
@@ -65,7 +66,13 @@ static struct memory_operation_state s_memory_state = {0};
 
 static void s_send_response(uint8_t command, int response_code, const struct command_response_data *response_data);
 
-/* Default plugin handler: returns RESPONSE_CMD_NOT_IMPLEMENTED */
+/*
+ * Default plugin handler for unpatched FPT slots.
+ *
+ * Returns RESPONSE_CMD_NOT_IMPLEMENTED (non-success) so the dispatcher falls
+ * back to s_send_response() and delivers an error frame to the host.
+ * See plugin_table.h for the full handler ABI contract.
+ */
 static int s_plugin_unsupported(uint8_t command,
                                 const uint8_t *data,
                                 uint32_t len,
@@ -971,8 +978,17 @@ void handle_command(const uint8_t *buffer, size_t size)
         if (command >= PLUGIN_FIRST_OPCODE && command <= PLUGIN_LAST_OPCODE) {
             int idx = command - PLUGIN_FIRST_OPCODE;
             memset(&response, 0, sizeof(response));
-            accumulated_result = plugin_table[idx](command, data, packet_size, &response);
-            break;
+            int plugin_result = plugin_table[idx](command, data, packet_size, &response);
+            if (plugin_result != RESPONSE_SUCCESS) {
+                /* Loaded NAND handlers always emit their own SLIP response and
+                 * return RESPONSE_SUCCESS.  A non-success return means either the
+                 * default s_plugin_unsupported slot (unpatched opcode) or a future
+                 * handler that opts into dispatcher-side framing — fall back to
+                 * the normal s_send_response() path so the host never hangs. */
+                s_send_response(command, plugin_result, NULL);
+            }
+            accumulated_result = RESPONSE_SUCCESS;
+            return;
         }
         accumulated_result = RESPONSE_INVALID_COMMAND;
         break;
