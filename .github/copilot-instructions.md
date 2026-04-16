@@ -16,8 +16,8 @@ These are linked from the main `README.md`, which serves as the user guide.
 **Project Type**: Embedded C firmware with CMake build system
 **Languages**: C (firmware), Python (build tools, tests)
 **Size**: Small (~11 C source files, ~2000 lines main codebase)
-**Target Chips**: esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266
-**Build Time**: ~0.5-1.5 seconds per chip, ~10-16 seconds for all chips built by build_all_chips.sh (13 chips)
+**Target Chips**: esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp32s31, esp8266
+**Build Time**: ~0.5-1.5 seconds per chip, ~10-16 seconds for all chips built by build_all_chips.sh (14 chips)
 
 ## Critical Setup Steps (ALWAYS Follow This Order)
 
@@ -64,7 +64,7 @@ cd ..
 This downloads and extracts three toolchains (takes ~2-5 minutes):
 1. `xtensa-esp-elf-15.1.0_20250607` - For esp32, esp32s2, esp32s3 (~120MB download)
 2. `xtensa-lx106-elf-gcc8_4_0-esp-2020r3` - For esp8266 (~100MB download)
-3. `riscv32-esp-elf-15.1.0_20250607` - For esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4 (~255MB download)
+3. `riscv32-esp-elf-15.1.0_20250607` - For esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp32s31 (~255MB download)
 
 **Note**: Network issues may cause partial downloads. If esp8266 toolchain fails, you can still build other chips.
 
@@ -119,7 +119,7 @@ source ./tools/export_toolchains.sh
 ./tools/build_all_chips.sh
 ```
 
-**Build Time**: ~10-15 seconds for all 13 chips (note: cmake defines 14 total targets, but build script excludes esp32h21)
+**Build Time**: ~10-15 seconds for all 14 chips (note: cmake defines 15 total targets, but build script excludes esp32h21)
 **Output**: Creates `build-{chip}/` directories for each chip with ELF and JSON files
 
 This script uses a **two-pass build** process:
@@ -288,7 +288,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - **Linker scripts**: Each chip has a specific linker script in `src/ld/{chip}.ld`
 - **Post-build processing**: `tools/elf2json.py` requires pyelftools; called automatically after build
 - **Two-pass plugin build**: Chips with plugin support (all except esp8266 and esp32) use a two-pass build: Pass 1 builds the base stub ELF, Pass 2 computes plugin addresses and builds the plugin ELF
-- **Chip support**: cmake defines 14 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp8266), but build_all_chips.sh only builds 13 (excludes esp32h21)
+- **Chip support**: cmake defines 15 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp32s31, esp8266), but build_all_chips.sh only builds 14 (excludes esp32h21)
 
 ## Common Issues and Workarounds
 
