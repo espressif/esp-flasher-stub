@@ -1,3 +1,11 @@
+## v0.6.0 (2026-04-17)
+
+### ✨ New Features
+
+- **esp32s31**: Implement support for the ESP32-S31 target *(Radim Karniš - 1d7331a)*
+- **esp32s3**: Add NAND flash chip support via the new plugin system *(Roland Dobai - 830118e)*
+
+
 ## v0.5.1 (2026-03-31)
 
 ### 🐛 Bug Fixes
