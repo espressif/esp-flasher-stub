@@ -27,6 +27,24 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Same chip list as cmake/esp-targets.cmake (ESP8266 + Xtensa + RISC-V); parse
+# the CMake file so run-tests validation cannot drift from the build system.
+load_valid_targets_from_cmake() {
+    local cmake_file="${1:?}"
+    if [[ ! -f "$cmake_file" ]]; then
+        print_error "Cannot find target definitions: $cmake_file"
+        exit 1
+    fi
+    VALID_TARGETS=$(grep -E '^set\((ESP8266_TARGET|XTENSA_TARGETS|RISCV_TARGETS) ' "$cmake_file" \
+        | sed -E 's/^set\((ESP8266_TARGET|XTENSA_TARGETS|RISCV_TARGETS) (.*)\)/\2/' \
+        | tr '\n' ' ')
+    VALID_TARGETS="${VALID_TARGETS% }"
+    if [[ -z "$VALID_TARGETS" ]]; then
+        print_error "Failed to parse ESP targets from $cmake_file"
+        exit 1
+    fi
+}
+
 # Print usage information
 usage() {
     echo "Usage: $0 [TARGET_CHIP] [OPTIONS]"
@@ -57,7 +75,10 @@ usage() {
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$SCRIPT_DIR"
+
+load_valid_targets_from_cmake "${REPO_ROOT}/cmake/esp-targets.cmake"
 
 print_status "ESP Flasher Stub Target Tests Runner"
 print_status "Working directory: $(pwd)"
@@ -118,8 +139,7 @@ if [[ -z "$TARGET_CHIP" ]]; then
     TARGET_CHIP="unknown"
 fi
 
-# Validate target chip
-VALID_TARGETS="esp8266 esp32 esp32s2 esp32s3 esp32c2 esp32c3 esp32c5 esp32c6 esp32c61 esp32h2 esp32h21 esp32h4 esp32p4"
+# Validate target chip (VALID_TARGETS loaded from cmake/esp-targets.cmake)
 if [[ ! " $VALID_TARGETS " =~ " $TARGET_CHIP " ]]; then
     if [[ "$TARGET_CHIP" == "unknown" ]]; then
         print_error "No target chip specified."
