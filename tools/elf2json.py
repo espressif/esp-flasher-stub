@@ -28,6 +28,7 @@ PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
         '0xD8': 'nand_plugin_read_flash',
         '0xD9': 'nand_plugin_write_flash_begin',
         '0xDA': 'nand_plugin_write_flash_data',
+        '0xDE': 'nand_plugin_write_flash_end',
         '0xDB': 'nand_plugin_erase_flash',
         '0xDC': 'nand_plugin_erase_region',
         '0xDD': 'nand_plugin_read_page_debug',
