@@ -1,11 +1,19 @@
 ---
 name: Build and release
 
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build_stubs:
     runs-on: ubuntu-24.04
+    # Collapse concurrent master workflow_dispatch builds: if a new dispatch
+    # arrives while one is running, the in-progress run is cancelled and the
+    # new one takes over.  PRs watching the cancelled run will hit the retry
+    # path and pick up the latest successful master artifacts.
+    # Other events (push, PR) get a unique group and are never cancelled.
+    concurrency:
+      group: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && 'build-stubs-master-dispatch' || format('build-stubs-{0}', github.run_id) }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout ref commit
@@ -53,6 +61,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
+      actions: write   # needed to trigger a master workflow_dispatch when artifacts have expired
       pull-requests: write
     steps:
       - name: Checkout
@@ -72,34 +81,113 @@ jobs:
       - name: Download master artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+          WORKFLOW: build_and_release.yml
         run: |
-          # Fetch the latest successful build on master from this same workflow
+          REPO="${{ github.repository }}"
+
+          download_artifacts() {
+            local run_id="$1"
+            if gh run download "$run_id" \
+              --repo "$REPO" --name stub-jsons \
+              --dir master-artifacts 2>/dev/null; then
+              echo "Downloaded master artifacts from run $run_id (stub-jsons)"
+              return 0
+            elif gh run download "$run_id" \
+              --repo "$REPO" --name artifact \
+              --dir master-artifacts 2>/dev/null; then
+              echo "Downloaded master artifacts from run $run_id (artifact)"
+              return 0
+            fi
+            return 1
+          }
+
+          # Try the latest successful master build
           RUN_ID=$(gh run list \
-            --repo "${{ github.repository }}" \
-            --workflow build_and_release.yml \
+            --repo "$REPO" \
+            --workflow "$WORKFLOW" \
             --branch master \
             --status success \
             --limit 1 \
             --json databaseId \
             --jq '.[0].databaseId' 2>/dev/null || true)
+
           if [ -n "$RUN_ID" ] && [ "$RUN_ID" != "null" ]; then
-            # Must match upload-artifact name: stub-jsons or artifact
-            if gh run download "$RUN_ID" \
-              --repo "${{ github.repository }}" \
-              --name stub-jsons \
-              --dir master-artifacts 2>/dev/null; then
-              echo "Downloaded master artifacts from run $RUN_ID (stub-jsons)"
-            elif gh run download "$RUN_ID" \
-              --repo "${{ github.repository }}" \
-              --name artifact \
-              --dir master-artifacts 2>/dev/null; then
-              echo "Downloaded master artifacts from run $RUN_ID (artifact)"
-            else
-              echo "::notice::Run $RUN_ID has no stub-jsons/artifact download; skipping master comparison"
+            if download_artifacts "$RUN_ID"; then
+              exit 0
             fi
-          else
-            echo "::notice::No successful master build found for comparison"
+            echo "Artifacts from run $RUN_ID have expired"
           fi
+
+          # No downloadable artifacts — trigger a fresh master build.
+          # Note: for fork PRs, GITHUB_TOKEN is read-only so gh workflow run
+          # will fail here; the fallback below handles it gracefully.
+          echo "Triggering a fresh master build to generate artifacts..."
+          # 10 s margin absorbs runner-vs-GitHub clock skew so the
+          # createdAt filter never misses the just-dispatched run.
+          START_TS=$(date -u -d '-10 seconds' +%FT%TZ)
+          if ! gh workflow run "$WORKFLOW" \
+            --repo "$REPO" --ref master; then
+            echo "::notice::Unable to trigger a master build; skipping comparison"
+            exit 0
+          fi
+
+          # Poll until a run created after our dispatch appears (up to 120 s).
+          # Multiple concurrent PRs may each find the same run; the
+          # concurrency group (cancel-in-progress: true) ensures only the
+          # latest dispatch actually completes — PRs watching a cancelled
+          # run fall through to the retry path below.
+          echo "Waiting for the triggered build to appear..."
+          sleep 2  # let the API index the new run before polling
+          NEW_RUN_ID=""
+          for _ in $(seq 1 24); do
+            sleep 5
+            NEW_RUN_ID=$(gh run list \
+              --repo "$REPO" \
+              --workflow "$WORKFLOW" \
+              --branch master \
+              --event workflow_dispatch \
+              --limit 5 \
+              --json databaseId,createdAt \
+              --jq "[.[] | select(.createdAt >= \"$START_TS\")] | .[0].databaseId" 2>/dev/null || true)
+            if [ -n "$NEW_RUN_ID" ] && [ "$NEW_RUN_ID" != "null" ]; then
+              break
+            fi
+          done
+
+          if [ -z "$NEW_RUN_ID" ] || [ "$NEW_RUN_ID" = "null" ]; then
+            echo "::notice::Triggered master build did not appear; skipping comparison"
+            exit 0
+          fi
+
+          echo "Waiting for master build $NEW_RUN_ID to complete..."
+          # 20 min cap: build_stubs typically finishes in ~2–3 min (toolchain
+          # install + 10–16 s build); the generous margin covers slow runners.
+          if ! timeout 1200 gh run watch "$NEW_RUN_ID" \
+            --repo "$REPO" --exit-status; then
+            # The build may have been cancelled by the concurrency group
+            # (superseded by a newer dispatch).  Re-check whether a
+            # successful master build now exists before giving up.
+            echo "Build $NEW_RUN_ID did not succeed — checking for a recent successful master build..."
+            RETRY_ID=$(gh run list \
+              --repo "$REPO" \
+              --workflow "$WORKFLOW" \
+              --branch master \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId' 2>/dev/null || true)
+            if [ -n "$RETRY_ID" ] && [ "$RETRY_ID" != "null" ] && download_artifacts "$RETRY_ID"; then
+              exit 0
+            fi
+            echo "::warning::Triggered master build $NEW_RUN_ID did not succeed or timed out; skipping comparison"
+            exit 0
+          fi
+
+          if download_artifacts "$NEW_RUN_ID"; then
+            exit 0
+          fi
+
+          echo "::notice::Could not obtain master artifacts; skipping comparison"
 
       - name: Generate and post size report
         env:
@@ -166,6 +254,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: stub-jsons
+          path: stub-jsons
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v2
