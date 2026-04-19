@@ -37,8 +37,12 @@ for chip in "${ALL_CHIPS[@]}"; do
     ninja -C "$DIR" "stub-$chip"
 
     # Pass 2: re-configure (CMake runs compute_plugin_addrs.py to generate plugin_addrs.cmake
-    # now that the base ELF exists), then build the plugin and regenerate the JSON
+    # now that the base ELF exists), then build the plugin(s) and regenerate the JSON.
+    # Pass 3: re-configure with all plugin ELFs present so compute_plugin_addrs.py can
+    # compute exact sizes; rebuilds any plugin whose address changed.
     if [ "$chip" != "esp8266" ] && [ "$chip" != "esp32" ]; then
+        cmake -B "$DIR" -DTARGET_CHIP=$chip -Wno-dev
+        ninja -C "$DIR"
         cmake -B "$DIR" -DTARGET_CHIP=$chip -Wno-dev
         ninja -C "$DIR"
     fi

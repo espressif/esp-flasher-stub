@@ -27,7 +27,11 @@ ninja -C "$DIR" "stub-$chip"
 
 # Pass 2: re-configure so CMake runs compute_plugin_addrs.py against the
 # freshly built base ELF, then build the plugin(s) and regenerate the JSON.
+# Pass 3: re-configure again now that all plugin ELFs exist so that
+# compute_plugin_addrs.py can compute exact sizes and rebuild if addresses changed.
 if [ "$chip" != "esp8266" ] && [ "$chip" != "esp32" ]; then
+    cmake -B "$DIR" -DTARGET_CHIP=$chip -Wno-dev
+    ninja -C "$DIR"
     cmake -B "$DIR" -DTARGET_CHIP=$chip -Wno-dev
     ninja -C "$DIR"
 fi

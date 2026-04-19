@@ -167,19 +167,12 @@ def main():
                         file=sys.stderr,
                     )
                 else:
-                    # No reserve provided.  If there are subsequent plugins their
-                    # addresses would overlap — fail fast with an actionable message.
-                    remaining = args.plugin[args.plugin.index([plugin_name, plugin_elf]) + 1 :]
-                    if remaining:
-                        sys.exit(
-                            f"ERROR: plugin ELF '{plugin_elf}' not found and no --reserve entry for {plugin_name!r}. "
-                            f'Subsequent plugins {[n for n, _ in remaining]} would receive overlapping addresses. '
-                            f'Build {plugin_name!r} first, or pass --reserve {plugin_name} <text_size> <bss_size>.'
-                        )
-                    # Single (last) plugin missing — harmless, emit warning only.
+                    # No reserve provided — use zero sizes and warn.  Addresses for
+                    # subsequent plugins will be wrong on this pass, but a follow-up
+                    # cmake+ninja pass (once all ELFs exist) will recompute them correctly.
                     print(
                         f"WARNING: plugin ELF '{plugin_elf}' not found; "
-                        f'subsequent plugin addresses may be incorrect (first-pass build?)',
+                        f'using size 0 for {plugin_name!r} (first-pass build — re-run cmake+ninja to fix).',
                         file=sys.stderr,
                     )
                     p_text_size = 0
