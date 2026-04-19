@@ -33,6 +33,9 @@ PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
         '0xDC': 'nand_plugin_erase_region',
         '0xDD': 'nand_plugin_read_page_debug',
     },
+    'diag': {
+        '0xDF': 'diag_plugin_log_read',
+    },
 }
 
 PLUGIN_FIRST_OPCODE = 0xD5

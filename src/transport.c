@@ -10,6 +10,7 @@
 #include <esp-stub-lib/usb_otg.h>
 #include <esp-stub-lib/clock.h>
 #include <esp-stub-lib/rom_wrappers.h>
+/* #include <esp-stub-lib/sdio.h> */
 #include "transport.h"
 #include "slip.h"
 
