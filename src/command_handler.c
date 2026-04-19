@@ -21,6 +21,10 @@
 #include "command_handler.h"
 #include "endian_utils.h"
 #include "plugin_table.h"
+#include "stub_log.h"
+
+/* Installed by a logging plugin at runtime; NULL when no plugin is loaded. */
+void (*stub_logf)(const char *fmt, ...);
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
@@ -171,6 +175,9 @@ static int s_init_flash_operation(const uint8_t *buffer, uint16_t size, bool is_
     ptr += sizeof(s_flash_state.offset);
     s_flash_state.encrypt = (size == FLASH_BEGIN_ENC_SIZE) ? get_le_to_u32(ptr) : false;
     s_flash_state.in_progress = true;
+    STUB_LOGF("flash: begin off=0x%08x size=%u%s\n",
+              s_flash_state.offset, s_flash_state.total_remaining,
+              is_compressed ? " (defl)" : "");
 
     if (is_compressed) {
         s_flash_state.compressed_remaining = s_flash_state.num_blocks * s_flash_state.block_size;
@@ -576,6 +583,7 @@ static int s_spi_attach(const struct cmd_ctx *ctx)
     uint32_t ishspi = get_le_to_u32(ctx->data);
 
     stub_lib_flash_attach(ishspi, 0);
+    STUB_LOGF("spi: attach=0x%08x\n", ishspi);
     return RESPONSE_SUCCESS;
 }
 
@@ -604,6 +612,7 @@ static int s_spi_set_params(const struct cmd_ctx *ctx)
         return RESPONSE_FAILED_SPI_OP;
     }
 
+    STUB_LOGF("spi: id=0x%06x size=%u\n", config.flash_id, config.flash_size);
     return RESPONSE_SUCCESS;
 }
 
@@ -612,7 +621,7 @@ static int s_change_baudrate_post_process(const struct cmd_ctx *ctx)
     uint32_t new_baudrate = get_le_to_u32(ctx->data);
 
     stub_lib_uart_rominit_set_baudrate(UART_NUM_0, new_baudrate);
-
+    STUB_LOGF("baud: %u\n", new_baudrate);
     return RESPONSE_SUCCESS;
 }
 
@@ -789,6 +798,7 @@ static int s_read_flash(const struct cmd_ctx *ctx)
 static int s_erase_flash(const struct cmd_ctx *ctx)
 {
     (void)ctx;  // Unused parameter
+    STUB_LOGF("flash: erase_chip\n");
     int result = stub_lib_flash_erase_chip();
     if (result != STUB_LIB_OK) {
         return RESPONSE_FAILED_SPI_OP;
@@ -818,6 +828,8 @@ static int s_erase_region(const struct cmd_ctx *ctx)
     if (addr % config.sector_size || erase_size % config.sector_size) {
         return RESPONSE_BAD_DATA_LEN;
     }
+
+    STUB_LOGF("flash: erase off=0x%08x size=%u\n", addr, erase_size);
 
     while (erase_size > 0 && timeout_us > 0) {
         stub_lib_flash_start_next_erase(&addr, &erase_size, 0);
@@ -871,6 +883,10 @@ void handle_command(const uint8_t *buffer, size_t size)
         s_send_response(command, accumulated_result, NULL);
         accumulated_result = RESPONSE_SUCCESS;
         return;
+    }
+
+    if (command != DIAG_LOG_READ) {
+        STUB_LOGF("cmd: %02x\n", command);
     }
 
     // Initialize response data for commands that return data
@@ -982,6 +998,7 @@ void handle_command(const uint8_t *buffer, size_t size)
     if (accumulated_result == RESPONSE_SUCCESS) {
         s_send_response(command, RESPONSE_SUCCESS, &response);
     } else {
+        STUB_LOGF("err: %04x\n", (uint32_t)accumulated_result);
         s_send_response(command, accumulated_result, NULL);
         s_pending_post_process = NULL;
     }

@@ -21,6 +21,7 @@ enum stub_transport_type {
     STUB_TRANSPORT_UART = 0,
     STUB_TRANSPORT_USB_OTG = 1,
     STUB_TRANSPORT_USB_SERIAL_JTAG = 2,
+    STUB_TRANSPORT_SDIO = 3,
 };
 
 /**

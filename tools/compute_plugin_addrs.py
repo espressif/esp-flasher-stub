@@ -111,12 +111,29 @@ def main():
                 sys.exit(f"ERROR: symbol '{name}' not found in base stub ELF")
             sym_addrs[name] = addr
 
+        # Optional symbols — present only when the corresponding feature is compiled in.
+        # Written to the cmake file as <NAME_UPPER>_ADDR if found.
+        optional_syms = [
+            'stub_logf',  # function pointer in base stub BSS; consumed by diag plugin
+        ]
+        for name in optional_syms:
+            addr = get_symbol_addr(elf, name)
+            if addr is not None:
+                sym_addrs[name] = addr
+
     lines = [
         f'set(SLIP_SEND_FRAME_ADDR         0x{sym_addrs["slip_send_frame"]:08X})',
         f'set(SLIP_RECV_RESET_ADDR         0x{sym_addrs["slip_recv_reset"]:08X})',
         f'set(SLIP_IS_FRAME_COMPLETE_ADDR  0x{sym_addrs["slip_is_frame_complete"]:08X})',
         f'set(SLIP_GET_FRAME_DATA_ADDR     0x{sym_addrs["slip_get_frame_data"]:08X})',
     ]
+    optional_sym_cmake_names = {
+        'stub_logf': 'STUB_LOGF_ADDR',
+    }
+    for name in optional_syms:
+        if name in sym_addrs:
+            cmake_var = optional_sym_cmake_names.get(name, name.upper() + '_ADDR')
+            lines.append(f'set({cmake_var:<32} 0x{sym_addrs[name]:08X})')
 
     # Allocate addresses sequentially for each requested plugin.
     # If no --plugin arguments are given (legacy/first-pass invocation), fall
@@ -150,19 +167,12 @@ def main():
                         file=sys.stderr,
                     )
                 else:
-                    # No reserve provided.  If there are subsequent plugins their
-                    # addresses would overlap — fail fast with an actionable message.
-                    remaining = args.plugin[args.plugin.index([plugin_name, plugin_elf]) + 1 :]
-                    if remaining:
-                        sys.exit(
-                            f"ERROR: plugin ELF '{plugin_elf}' not found and no --reserve entry for {plugin_name!r}. "
-                            f'Subsequent plugins {[n for n, _ in remaining]} would receive overlapping addresses. '
-                            f'Build {plugin_name!r} first, or pass --reserve {plugin_name} <text_size> <bss_size>.'
-                        )
-                    # Single (last) plugin missing — harmless, emit warning only.
+                    # No reserve provided — use zero sizes and warn.  Addresses for
+                    # subsequent plugins will be wrong on this pass, but a follow-up
+                    # cmake+ninja pass (once all ELFs exist) will recompute them correctly.
                     print(
                         f"WARNING: plugin ELF '{plugin_elf}' not found; "
-                        f'subsequent plugin addresses may be incorrect (first-pass build?)',
+                        f'using size 0 for {plugin_name!r} (first-pass build — re-run cmake+ninja to fix).',
                         file=sys.stderr,
                     )
                     p_text_size = 0
