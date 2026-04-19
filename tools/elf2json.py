@@ -215,6 +215,7 @@ def get_stub_sections(
                 stub['plugins'][p_name] = {
                     'text': p_text_data,
                     'text_start': p_text_start,
+                    'bss_start': p_bss_sec['sh_addr'] if p_bss_sec else None,
                     'bss_size': p_bss_size,
                     'handlers': handlers,
                 }
