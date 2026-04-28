@@ -43,8 +43,7 @@ void esp_main(void)
         stub_lib_clock_init();
     }
 
-    void *flash_state = NULL;
-    stub_lib_flash_init(&flash_state);
+    stub_lib_flash_init(NULL);
     stub_lib_flash_attach(0, false);
 
     stub_transport_init(transport);
@@ -75,7 +74,5 @@ void esp_main(void)
     }
 
     // Cleanup
-    if (flash_state) {
-        stub_lib_flash_deinit(flash_state);
-    }
+    stub_lib_flash_deinit(NULL);
 }
