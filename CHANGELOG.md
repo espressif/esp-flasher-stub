@@ -1,3 +1,15 @@
+## v0.7.0 (2026-05-04)
+
+### ✨ New Features
+
+- **esp32s31**: Add USB-Serial/JTAG support *(Radim Karniš - 1d28e9c)*
+
+### 🐛 Bug Fixes
+
+- **init**: Prevent Guru Meditation error sduring clock initialization *(Radim Karniš - 76dbab8)*
+- **flash**: pass null flash state in stub main *(Jaroslav Burian - d459c62)*
+
+
 ## v0.6.0 (2026-04-17)
 
 ### ✨ New Features
