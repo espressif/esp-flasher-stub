@@ -125,12 +125,27 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
     endif()
 
     # ---- Compute plugin addresses (requires base ELF to exist) --------------
+    #
+    # Pass all known plugin ELF paths to compute_plugin_addrs.py so that it
+    # stacks addresses correctly even on chips where some plugins don't apply.
+    # Missing ELFs are handled gracefully by the script (first-pass warning).
+
+    set(_compute_plugin_args "")
+    if(EXISTS "${_NAND_C}")
+        list(APPEND _compute_plugin_args
+            "--plugin" "nand"
+            "${CMAKE_BINARY_DIR}/src/stub-${TARGET_CHIP}-nand-plugin${CMAKE_EXECUTABLE_SUFFIX_C}")
+    endif()
+    list(APPEND _compute_plugin_args
+        "--plugin" "diag"
+        "${CMAKE_BINARY_DIR}/src/stub-${TARGET_CHIP}-diag-plugin${CMAKE_EXECUTABLE_SUFFIX_C}")
 
     if(EXISTS "${BASE_ELF}")
         execute_process(
             COMMAND ${CMAKE_SOURCE_DIR}/tools/compute_plugin_addrs.py
                     ${BASE_ELF}
                     ${PLUGIN_ADDRS_FILE}
+                    ${_compute_plugin_args}
             RESULT_VARIABLE _ret
         )
         if(NOT _ret EQUAL 0)
@@ -156,6 +171,23 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
                 TEXT_ADDR     NAND_PLUGIN_TEXT_ADDR
                 BSS_ADDR      NAND_PLUGIN_BSS_ADDR
             )
+        endif()
+
+        if(DEFINED STUB_LOGF_ADDR)
+            stub_add_plugin(
+                NAME          diag
+                SOURCES
+                    diag_plugin.c
+                LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/diag_plugin.ld
+                TEXT_ADDR     DIAG_PLUGIN_TEXT_ADDR
+                BSS_ADDR      DIAG_PLUGIN_BSS_ADDR
+            )
+            # Wire the base stub's stub_logf pointer address into the plugin.
+            target_link_options(stub-${TARGET_CHIP}-diag-plugin PRIVATE
+                -Wl,--defsym,BASE_STUB_LOGF_PTR=${STUB_LOGF_ADDR}
+            )
+        else()
+            message(STATUS "stub_logf symbol not found in base stub — diag plugin not built this pass")
         endif()
 
         # ---- Post-build: regenerate JSON with all plugin data embedded ------

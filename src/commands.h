@@ -49,6 +49,8 @@ extern "C" {
 #define ESP_SPI_NAND_ERASE_REGION     0xDC
 #define ESP_SPI_NAND_READ_PAGE_DEBUG 0xDD
 #define ESP_SPI_NAND_WRITE_FLASH_END 0xDE
+// Diag plugin commands
+#define DIAG_LOG_READ           0xDF
 
 /**
  * @brief ESP command response codes (16-bit)
