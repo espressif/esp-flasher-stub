@@ -68,7 +68,8 @@ The build requires the `-DTARGET_CHIP=<chip>` parameter. The CMake configuration
 2. Selects the appropriate cross-compiler prefix (Xtensa or RISC-V).
 3. Applies architecture-specific compiler flags.
 4. Links with a chip-specific linker script from `src/ld/`.
-5. Runs `tools/elf2json.py` as a post-build step to generate the JSON stub file.
+5. Applies target-local size workarounds where needed, such as `-fdata-sections` only for ESP8266 `miniz_obj`.
+6. Runs `tools/elf2json.py` as a post-build step to generate the JSON stub file.
 
 ## Linker Scripts
 
