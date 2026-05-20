@@ -13,10 +13,9 @@
 extern "C" {
 #endif
 
-// 0x4000 plus 0xFF is the maximum data size sent by esptool (WRITE_FLASH command), so keeping for the compatibility
-#define ESPTOOL_MAX_DATA_SIZE (0x4000U + 0xFFU)
+struct stub_transport_ops;
+
 #define HEADER_SIZE 8U
-#define MAX_COMMAND_SIZE (HEADER_SIZE + ESPTOOL_MAX_DATA_SIZE)
 
 /** Maximum number of extra data bytes a command response may carry. */
 #define MAX_RESPONSE_DATA_SIZE 64U
@@ -34,6 +33,7 @@ struct cmd_ctx {
     uint16_t packet_size;
     uint32_t checksum;
     const uint8_t *data;
+    const struct stub_transport_ops *transport;
 };
 
 /**
@@ -46,9 +46,9 @@ struct cmd_ctx {
  *      Set to NULL when no post-processing is needed.
  *   3. Return a status code (RESPONSE_SUCCESS or an error code).
  *
- * Handlers MUST NOT call SLIP functions directly for the primary response frame —
- * the dispatcher owns framing via s_send_response(). Streaming frames emitted
- * inside a post_process callback may still use slip_send_frame() directly.
+ * Handlers MUST NOT send the primary response frame themselves. The dispatcher
+ * owns framing via s_send_response(). Streaming frames emitted inside a
+ * post_process callback should use ctx->transport.
  */
 struct command_response_data {
     uint32_t value;                        /**< 4-byte value field in the response header */
@@ -66,7 +66,7 @@ struct command_response_data {
  * @param len Length of the buffer
  */
 
-void handle_command(const uint8_t *buffer, size_t len);
+void handle_command(const uint8_t *buffer, size_t len, const struct stub_transport_ops *transport);
 
 #ifdef __cplusplus
 }

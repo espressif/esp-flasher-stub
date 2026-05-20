@@ -15,20 +15,8 @@ import sys
 
 try:
     from elftools.elf.elffile import ELFFile
-    from elftools.elf.sections import SymbolTableSection
 except ImportError:
     raise SystemExit('pyelftools not found. Install with: pip install pyelftools')
-
-
-def get_symbol_addr(elf, name):
-    """Return the VMA of symbol *name*, or None if not found."""
-    for section in elf.iter_sections():
-        if not isinstance(section, SymbolTableSection):
-            continue
-        for sym in section.iter_symbols():
-            if sym.name == name and sym['st_value'] != 0:
-                return sym['st_value']
-    return None
 
 
 def align_up(value, alignment):
@@ -96,27 +84,7 @@ def main():
         # Place plugin BSS after both .data and .bss to avoid overlap
         next_bss_addr = align_up(max(data_end, bss_end), 4)
 
-        # Symbols forwarded to the plugin via PROVIDE in the linker script
-        slip_syms = [
-            'slip_send_frame',
-            'slip_recv_reset',
-            'slip_is_frame_complete',
-            'slip_get_frame_data',
-        ]
-
-        sym_addrs = {}
-        for name in slip_syms:
-            addr = get_symbol_addr(elf, name)
-            if addr is None:
-                sys.exit(f"ERROR: symbol '{name}' not found in base stub ELF")
-            sym_addrs[name] = addr
-
-    lines = [
-        f'set(SLIP_SEND_FRAME_ADDR         0x{sym_addrs["slip_send_frame"]:08X})',
-        f'set(SLIP_RECV_RESET_ADDR         0x{sym_addrs["slip_recv_reset"]:08X})',
-        f'set(SLIP_IS_FRAME_COMPLETE_ADDR  0x{sym_addrs["slip_is_frame_complete"]:08X})',
-        f'set(SLIP_GET_FRAME_DATA_ADDR     0x{sym_addrs["slip_get_frame_data"]:08X})',
-    ]
+    lines = []
 
     # Allocate addresses sequentially for each requested plugin.
     # If no --plugin arguments are given (legacy/first-pass invocation), fall

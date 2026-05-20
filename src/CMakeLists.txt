@@ -1,5 +1,6 @@
 add_executable(${TARGET_NAME}
     "main.c"
+    "frame_buffer.c"
     "slip.c"
     "command_handler.c"
     "transport.c"
@@ -103,10 +104,6 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
             "-T${_PA_LINKER_SCRIPT}"
             -Wl,--defsym,PLUGIN_TEXT_ADDR=${${_PA_TEXT_ADDR}}
             -Wl,--defsym,PLUGIN_BSS_ADDR=${${_PA_BSS_ADDR}}
-            -Wl,--defsym,BASE_SLIP_SEND_FRAME=${SLIP_SEND_FRAME_ADDR}
-            -Wl,--defsym,BASE_SLIP_RECV_RESET=${SLIP_RECV_RESET_ADDR}
-            -Wl,--defsym,BASE_SLIP_IS_FRAME_COMPLETE=${SLIP_IS_FRAME_COMPLETE_ADDR}
-            -Wl,--defsym,BASE_SLIP_GET_FRAME_DATA=${SLIP_GET_FRAME_DATA_ADDR}
             -Wl,-Map=${CMAKE_BINARY_DIR}/${_plugin_target}.map
             ${_rom_ld_flags}
         )
