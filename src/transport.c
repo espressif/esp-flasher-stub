@@ -11,6 +11,8 @@
 #include <esp-stub-lib/usb_otg.h>
 #include <esp-stub-lib/clock.h>
 #include <esp-stub-lib/rom_wrappers.h>
+#include <esp-stub-lib/err.h>
+#include <esp-stub-lib/sdio.h>
 #include "transport.h"
 #include "frame_buffer.h"
 #include "slip.h"
@@ -72,10 +74,75 @@ static const struct stub_transport_ops s_slip_ops = {
     .send_frame   = slip_send_frame,
 };
 
+/* ---- SDIO transport ops -------------------------------------------------- */
+/*
+ * SDIO bypasses SLIP entirely; the DMA writes a whole frame into the armed
+ * buffer and the ISR latches its length for stub_lib_sdio_take_rx_frame().
+ *
+ * The driver disarms its receive DMA not only after delivering a frame but
+ * also on no-frame paths (empty descriptor chain / TX_DSCR_EMPTY in
+ * sdio_slc_isr). Those disarms are invisible to frame_buffer, so recv_poll
+ * MUST re-arm whenever it finds no pending frame — otherwise the link
+ * silently dies. stub_lib_sdio_rearm() is a cheap no-op while still armed.
+ *
+ * Ordering constraint: stub_lib_sdio_rearm() fails while a received frame is
+ * still pending, so take_rx_frame() (which clears that state) must run first.
+ * On the no-frame path take_rx_frame() returned false, so nothing is pending
+ * and the re-arm is safe.
+ */
+
+static void sdio_arm(void)
+{
+    /* A NULL buffer means both frame buffers are occupied, which cannot
+     * happen under the lock-step + single early-ack protocol; if it ever
+     * did, RX would stall on the next frame (no silent corruption). */
+    stub_lib_sdio_rearm(frame_buffer_acquire(), FRAME_BUFFER_SIZE);
+}
+
+static const uint8_t *sdio_recv_poll(size_t *len, bool *error)
+{
+    *error = false;
+
+    enum frame_buffer_state state = frame_buffer_get_state();
+    if (state == FRAME_BUFFER_STATE_IDLE) {
+        size_t n;
+        if (!stub_lib_sdio_take_rx_frame(&n)) {
+            sdio_arm();
+            return NULL;
+        }
+        frame_buffer_mark_complete(n);   /* frame already DMA'd into proc buf */
+        state = frame_buffer_get_state();
+        sdio_arm();                      /* take done → switch to spare + arm  */
+    }
+    /* state != IDLE: a prior frame awaits release; its spare is already armed
+     * and may already hold an un-taken frame, so do NOT re-arm here. */
+    if (state == FRAME_BUFFER_STATE_ERROR) {
+        *error = true;
+        return NULL;
+    }
+    return frame_buffer_get_data(len);
+}
+
+static bool sdio_send_frame(const void *data, size_t len)
+{
+    return stub_lib_sdio_tx_frame(data, len) == STUB_LIB_OK;
+}
+
+static const struct stub_transport_ops s_sdio_ops = {
+    .recv_poll    = sdio_recv_poll,
+    .recv_release = frame_buffer_reset,
+    .send_frame   = sdio_send_frame,
+};
+
 /* ---- Detection & initialisation ------------------------------------------ */
 
 int stub_transport_detect(void)
 {
+    /* SDIO must be checked before USB: ROM may leave USB registers in an
+     * ambiguous state after an SDIO boot. */
+    if (stub_lib_sdio_is_active()) {
+        return TRANSPORT_SDIO;
+    }
     if (stub_lib_usb_otg_is_active()) {
         return TRANSPORT_USB_OTG;
     }
@@ -88,6 +155,12 @@ int stub_transport_detect(void)
 const struct stub_transport_ops *stub_transport_init(int transport)
 {
     switch (transport) {
+    case TRANSPORT_SDIO:
+        stub_lib_sdio_init();
+        /* Arm the first DMA receive buffer immediately after init. */
+        sdio_arm();
+        return &s_sdio_ops;
+
     case TRANSPORT_USB_OTG:
         stub_lib_usb_otg_rominit_intr_attach(USB_INTERRUPT_SOURCE, slip_recv_byte);
         slip_set_tx_fn(stub_lib_usb_otg_tx_one_char);

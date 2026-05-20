@@ -21,6 +21,7 @@ enum stub_transport_type {
     TRANSPORT_UART = 0,
     TRANSPORT_USB_OTG = 1,
     TRANSPORT_USB_SERIAL_JTAG = 2,
+    TRANSPORT_SDIO = 3,
 };
 
 /**

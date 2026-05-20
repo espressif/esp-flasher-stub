@@ -104,7 +104,7 @@ ninja -C build
 
 ## How It Works
 
-The flasher stub operates through upload, initialization, handshake (`OHAI` over SLIP), and a command loop that handles flash, memory, register, and SPI operations. For details, see the [Architecture](docs/architecture.md) document.
+The flasher stub operates through upload, initialization, handshake (`OHAI` over the selected transport), and a command loop that handles flash, memory, register, and SPI operations. UART and USB transports use SLIP framing; SDIO uses raw command frames. For details, see the [Architecture](docs/architecture.md) document.
 
 ## Contributing
 
