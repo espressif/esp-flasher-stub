@@ -113,6 +113,14 @@ enum esp_response_code {
 /* reboot_flag (uint32_t LE) — mirrors FLASH_END_SIZE */
 #define SPI_NAND_WRITE_FLASH_END_SIZE 4
 
+/**
+ * ESP_FLASH_DATA payload header (FLASH_DATA_HEADER_SIZE bytes, four LE uint32):
+ *   data_len, seq, skip_size, flags.
+ * For normal data packets, skip_size and flags must be zero.
+ * skip_size and FLASH_DATA_FLAG_SKIP_WRITE are stub-only; ROM ignores flags.
+ */
+#define FLASH_DATA_FLAG_SKIP_WRITE  0x00000001U
+
 #ifdef __cplusplus
 }
 #endif

@@ -222,6 +222,16 @@ static int s_handle_flash_end(const uint8_t *buffer, uint16_t size, uint32_t *re
     return RESPONSE_SUCCESS;
 }
 
+static bool s_buf_is_erased(const uint8_t *data, uint32_t size)
+{
+    for (uint32_t i = 0; i < size; i++) {
+        if (data[i] != 0xFF) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int s_write_flash_data(const uint8_t *data, uint32_t size)
 {
     int result = s_ensure_flash_erased_to(s_flash_state.offset + size);
@@ -242,6 +252,23 @@ static int s_write_flash_data(const uint8_t *data, uint32_t size)
 
 static int s_flash_data_post_process(const struct cmd_ctx *ctx)
 {
+    const uint8_t *data_header = ctx->data;
+    data_header += sizeof(uint32_t); /* data_len */
+    data_header += sizeof(uint32_t); /* seq */
+    uint32_t skip_size = get_le_to_u32(data_header);
+    data_header += sizeof(uint32_t);
+    uint32_t flags = get_le_to_u32(data_header);
+
+    if (flags & FLASH_DATA_FLAG_SKIP_WRITE) {
+        int result = s_ensure_flash_erased_to(s_flash_state.offset + skip_size);
+        if (result != RESPONSE_SUCCESS) {
+            return result;
+        }
+        s_flash_state.total_remaining -= skip_size;
+        s_flash_state.offset += skip_size;
+        return RESPONSE_SUCCESS;
+    }
+
     const uint8_t *flash_data = ctx->data + FLASH_DATA_HEADER_SIZE;
     const uint16_t actual_data_size = (uint16_t)(ctx->packet_size - FLASH_DATA_HEADER_SIZE);
     uint32_t write_size = MIN(actual_data_size, s_flash_state.total_remaining);
@@ -304,7 +331,16 @@ static int s_flash_defl_data_post_process(const struct cmd_ctx *ctx)
 
             uint32_t write_size = (uint32_t)(decompressed_data_ptr - decompressed_data);
 
-            int write_result = s_write_flash_data(decompressed_data, write_size);
+            int write_result;
+            if (!s_flash_state.encrypt && write_size > 0 && s_buf_is_erased(decompressed_data, write_size)) {
+                write_result = s_ensure_flash_erased_to(s_flash_state.offset + write_size);
+                if (write_result == RESPONSE_SUCCESS) {
+                    s_flash_state.total_remaining -= write_size;
+                    s_flash_state.offset += write_size;
+                }
+            } else {
+                write_result = s_write_flash_data(decompressed_data, write_size);
+            }
             if (write_result != RESPONSE_SUCCESS) {
                 return write_result;
             }
@@ -357,12 +393,23 @@ static int s_flash_data(const struct cmd_ctx *ctx)
         return check;
     }
 
-    uint32_t data_len = get_le_to_u32(ctx->data);
+    const uint8_t *data_header = ctx->data;
+    uint32_t data_len = get_le_to_u32(data_header);
+    data_header += sizeof(data_len);
+    data_header += sizeof(uint32_t); /* seq - not used in flasher stub */
+    uint32_t skip_size = get_le_to_u32(data_header);
+    data_header += sizeof(skip_size);
+    uint32_t flags = get_le_to_u32(data_header);
 
     const uint8_t *flash_data = ctx->data + FLASH_DATA_HEADER_SIZE;
     const uint16_t actual_data_size = (uint16_t)(ctx->packet_size - FLASH_DATA_HEADER_SIZE);
 
-    if (data_len != actual_data_size) {
+    if (flags & FLASH_DATA_FLAG_SKIP_WRITE) {
+        if (s_flash_state.encrypt || data_len != 0 || ctx->packet_size != FLASH_DATA_HEADER_SIZE
+                || skip_size == 0 || skip_size > s_flash_state.total_remaining) {
+            return RESPONSE_BAD_DATA_LEN;
+        }
+    } else if (data_len != actual_data_size) {
         return RESPONSE_TOO_MUCH_DATA;
     }
 
