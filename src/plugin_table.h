@@ -34,9 +34,9 @@
  *      Leave resp->post_process as NULL when no post-processing is needed.
  *   3. Return RESPONSE_SUCCESS or an error code.
  *
- * The dispatcher (command_handler.c:s_send_response) owns primary SLIP framing —
+ * The dispatcher (command_handler.c:s_send_response) owns primary response framing —
  * handlers MUST NOT send the response frame themselves.  Streaming frames inside
- * a post_process callback may still call slip_send_frame() directly.
+ * a post_process callback should use ctx->transport.
  *
  * Return value (esp_response_code):
  *   RESPONSE_SUCCESS (0): dispatcher sends a success frame, then calls

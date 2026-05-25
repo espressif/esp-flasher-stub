@@ -16,7 +16,7 @@
 #include <esp-stub-lib/security.h>
 #include <esp-stub-lib/miniz.h>
 #include <esp-stub-lib/md5.h>
-#include "slip.h"
+#include "transport.h"
 #include "commands.h"
 #include "command_handler.h"
 #include "endian_utils.h"
@@ -55,7 +55,10 @@ struct flash_operation_state {
 static struct flash_operation_state s_flash_state = {0};
 static struct memory_operation_state s_memory_state = {0};
 
-static void s_send_response(uint8_t command, int response_code, const struct command_response_data *response_data);
+static void s_send_response(const struct stub_transport_ops *transport,
+                            uint8_t command,
+                            int response_code,
+                            const struct command_response_data *response_data);
 
 /*
  * Default plugin handler for unpatched FPT slots.
@@ -93,9 +96,12 @@ static inline int s_validate_checksum(const uint8_t *data, uint32_t size, uint32
     return RESPONSE_SUCCESS;
 }
 
-static void s_send_response(uint8_t command, int response_code, const struct command_response_data *response_data)
+static void s_send_response(const struct stub_transport_ops *transport,
+                            uint8_t command,
+                            int response_code,
+                            const struct command_response_data *response_data)
 {
-    uint8_t response_buffer[MAX_RESPONSE_SIZE] = {0};
+    uint8_t response_buffer[MAX_RESPONSE_SIZE] __attribute__((aligned(4))) = {0};
 
     uint16_t data_size = response_data ? response_data->data_size : 0U;
     if (data_size > MAX_RESPONSE_DATA_SIZE) {
@@ -123,7 +129,7 @@ static void s_send_response(uint8_t command, int response_code, const struct com
     // Write response code in big-endian format (remote reads as ">H")
     set_u16_to_be(ptr, (uint16_t)response_code);
 
-    slip_send_frame(response_buffer, total_frame_size);
+    transport->send_frame(response_buffer, total_frame_size);
 }
 
 static inline int s_check_flash_in_progress(void)
@@ -329,7 +335,7 @@ static int s_sync(const struct cmd_ctx *ctx)
      * ROM bootloader also sends 8 responses (7 here, last one as return command response) but with non-zero values.
      * The value 0 is used by esptool to detect that it's talking to a flasher stub. */
     for (int i = 0; i < 7; ++i) {
-        s_send_response(ESP_SYNC, RESPONSE_SUCCESS, NULL);
+        s_send_response(ctx->transport, ESP_SYNC, RESPONSE_SUCCESS, NULL);
     }
 
     return RESPONSE_SUCCESS;
@@ -723,8 +729,8 @@ static int s_read_flash_post_process(const struct cmd_ctx *ctx)
         return RESPONSE_BAD_DATA_LEN;
     }
 
-    // Reset slip receive state to avoid reading READ_FLASH command again
-    slip_recv_reset();
+    // Release the READ_FLASH command frame so the buffer can receive ACKs
+    ctx->transport->recv_release();
 
     uint32_t read_size_remaining = read_size;
     uint32_t sent_packets = 0;
@@ -736,15 +742,18 @@ static int s_read_flash_post_process(const struct cmd_ctx *ctx)
 
     while (read_size_remaining > 0 || acked_data_size < read_size) {
         // Check if packet acknowledgement from a host arrived
-        if (slip_is_frame_complete()) {
-            size_t slip_size;
-            const uint8_t *slip_data = slip_get_frame_data(&slip_size);
-            if (slip_size != sizeof(acked_data_size)) {
+        size_t ack_size;
+        bool ack_error;
+        const uint8_t *ack_data = ctx->transport->recv_poll(&ack_size, &ack_error);
+        if (ack_error) {
+            ctx->transport->recv_release();
+        } else if (ack_data != NULL) {
+            if (ack_size != sizeof(acked_data_size)) {
                 break;
             }
-            memcpy(&acked_data_size, slip_data, sizeof(acked_data_size));
+            memcpy(&acked_data_size, ack_data, sizeof(acked_data_size));
             acked_packets++;
-            slip_recv_reset();
+            ctx->transport->recv_release();
         }
 
         // If not all data was read and max in-flight packets was not reached, read more data
@@ -762,16 +771,20 @@ static int s_read_flash_post_process(const struct cmd_ctx *ctx)
 
             // Use the data starting from the alignment offset
             uint8_t *actual_data = data + align_offset;
+            if (((uintptr_t)actual_data & 3U) != 0U) {
+                memmove(data, actual_data, actual_read_size);
+                actual_data = data;
+            }
             stub_lib_md5_update(&md5_ctx, actual_data, actual_read_size);
-            slip_send_frame(actual_data, actual_read_size);
+            ctx->transport->send_frame(actual_data, actual_read_size);
             offset += actual_read_size;
             read_size_remaining -= actual_read_size;
             sent_packets++;
         }
     }
-    uint8_t md5[16];
+    uint8_t md5[16] __attribute__((aligned(4)));
     stub_lib_md5_final(&md5_ctx, md5);
-    slip_send_frame(md5, sizeof(md5));
+    ctx->transport->send_frame(md5, sizeof(md5));
 
     return RESPONSE_SUCCESS;
 }
@@ -832,7 +845,7 @@ static int s_erase_region(const struct cmd_ctx *ctx)
 #undef ERASE_PER_SECTOR_TIMEOUT_US
 }
 
-void handle_command(const uint8_t *buffer, size_t size)
+void handle_command(const uint8_t *buffer, size_t size, const struct stub_transport_ops *transport)
 {
     // Accumulates errors from previous post-process and current command
     static int accumulated_result = RESPONSE_SUCCESS;
@@ -848,12 +861,12 @@ void handle_command(const uint8_t *buffer, size_t size)
     const uint8_t *data = ptr;
 
     if (direction != DIRECTION_REQUEST) {
-        s_send_response(command, RESPONSE_INVALID_COMMAND, NULL);
+        s_send_response(transport, command, RESPONSE_INVALID_COMMAND, NULL);
         return;
     }
 
     if (size != (size_t)(packet_size + HEADER_SIZE)) {
-        s_send_response(command, RESPONSE_BAD_DATA_LEN, NULL);
+        s_send_response(transport, command, RESPONSE_BAD_DATA_LEN, NULL);
         return;
     }
 
@@ -863,12 +876,13 @@ void handle_command(const uint8_t *buffer, size_t size)
         .direction = direction,
         .packet_size = packet_size,
         .checksum = checksum,
-        .data = data
+        .data = data,
+        .transport = transport
     };
 
     // If previous post-process failed, send that error and skip command execution
     if (accumulated_result != RESPONSE_SUCCESS) {
-        s_send_response(command, accumulated_result, NULL);
+        s_send_response(transport, command, accumulated_result, NULL);
         accumulated_result = RESPONSE_SUCCESS;
         return;
     }
@@ -980,9 +994,9 @@ void handle_command(const uint8_t *buffer, size_t size)
     }
 
     if (accumulated_result == RESPONSE_SUCCESS) {
-        s_send_response(command, RESPONSE_SUCCESS, &response);
+        s_send_response(transport, command, RESPONSE_SUCCESS, &response);
     } else {
-        s_send_response(command, accumulated_result, NULL);
+        s_send_response(transport, command, accumulated_result, NULL);
         s_pending_post_process = NULL;
     }
 

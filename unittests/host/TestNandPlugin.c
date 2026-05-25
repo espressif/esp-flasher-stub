@@ -17,20 +17,20 @@
  *
  * For nand_plugin_read_flash the handler registers resp->post_process; calling
  * resp.post_process(&fake_ctx) exercises the streaming loop (data packets + MD5).
- * Streaming frames from the post-process are still captured via the
- * slip_send_frame stub. See command_handler.c:s_send_response for the primary
- * response framing path used for all other handlers.
+ * Streaming frames from the post-process are captured through a fake transport.
+ * See command_handler.c:s_send_response for the primary response framing path
+ * used for all other handlers.
  */
 
 #include <stdint.h>
 #include <string.h>
 #include "unity.h"
 #include "mock_nand.h"
-#include "mock_slip.h"
 #include "mock_md5.h"
 #include "commands.h"
 #include "command_handler.h"
 #include "plugin_table.h"
+#include "transport.h"
 
 /* ---- Dummy plugin_table (required by nand_plugin.c's extern declaration) -- */
 plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE];
@@ -71,60 +71,65 @@ static void reset_capture(void)
     s_frame_count   = 0;
 }
 
-/* CMock callback registered via slip_send_frame_StubWithCallback().
- * Captures only the first frame. */
-static void mock_slip_send_frame_cb(const void *data, size_t size, int num_calls)
+/* Captures only the first frame. */
+static bool fake_transport_send_frame(const void *data, size_t size)
 {
-    (void)num_calls;
     if (s_frame_count == 0 && size <= CAPTURED_FRAME_MAX) {
         memcpy(s_captured_frame, data, size);
         s_captured_size = size;
     }
     s_frame_count++;
+    return true;
 }
 
 /* ---- Callbacks for nand_plugin_read_flash -------------------------------- */
 
 /*
  * After the first data packet is sent, the handler checks for ACKs.
- * We simulate one ACK by returning true from slip_is_frame_complete on call 1+,
- * and returning a buffer with acked_data_size = 2048 from slip_get_frame_data.
+ * We simulate one ACK: the first poll returns no frame (before the first
+ * packet is sent), and every poll from the second on returns a 4-byte
+ * buffer holding acked_data_size.
  */
 static uint32_t s_read_flash_ack_size;
+static int s_read_flash_poll_calls;
 
-static bool slip_is_frame_complete_read_flash_cb(int num_calls)
+static const uint8_t *fake_transport_recv_poll(size_t *length, bool *error)
 {
-    /* Return true starting from the second check (after the first packet is sent) */
-    return num_calls >= 1;
-}
-
-static const uint8_t *slip_get_frame_data_read_flash_cb(size_t *length, int num_calls)
-{
-    (void)num_calls;
+    *error = false;
+    if (s_read_flash_poll_calls++ < 1) {
+        return NULL;
+    }
     if (length) {
         *length = sizeof(s_read_flash_ack_size);
     }
     return (const uint8_t *)&s_read_flash_ack_size;
 }
 
+static void fake_transport_recv_release(void)
+{
+}
+
+static const struct stub_transport_ops s_fake_transport = {
+    .recv_poll = fake_transport_recv_poll,
+    .recv_release = fake_transport_recv_release,
+    .send_frame = fake_transport_send_frame,
+};
+
 /* ---- Unity setUp / tearDown --------------------------------------------- */
 
 void setUp(void)
 {
     reset_capture();
+    s_read_flash_ack_size = 0;
+    s_read_flash_poll_calls = 0;
     mock_nand_Init();
-    mock_slip_Init();
     mock_md5_Init();
-    /* Register the frame capture callback for streaming-frame tests */
-    slip_send_frame_StubWithCallback(mock_slip_send_frame_cb);
 }
 
 void tearDown(void)
 {
     mock_nand_Verify();
     mock_nand_Destroy();
-    mock_slip_Verify();
-    mock_slip_Destroy();
     mock_md5_Verify();
     mock_md5_Destroy();
 }
@@ -567,16 +572,12 @@ void test_read_flash_success(void)
 
     /* Step (b): invoke post_process — exercises the streaming loop.
      *
-     * ACK loop setup:
-     *   - slip_recv_reset: ignore all calls
-     *   - slip_is_frame_complete: return false on call 0 (before packet sent),
-     *       true on call 1+ (after packet sent) — triggers ACK processing
-     *   - slip_get_frame_data: return a 4-byte buffer with acked_data_size = 2048
-     *       so the loop exits (acked_data_size >= read_size) */
+     * ACK loop setup (fake transport):
+     *   - recv_release: ignore all calls
+     *   - recv_poll: return no frame on call 0 (before packet sent), then a
+     *       4-byte buffer with acked_data_size = 2048 from call 1 on, so the
+     *       loop exits (acked_data_size >= read_size) */
     s_read_flash_ack_size = 2048;
-    slip_recv_reset_Ignore();
-    slip_is_frame_complete_StubWithCallback(slip_is_frame_complete_read_flash_cb);
-    slip_get_frame_data_StubWithCallback(slip_get_frame_data_read_flash_cb);
 
     /* MD5 calls */
     stub_lib_md5_init_Ignore();
@@ -585,8 +586,9 @@ void test_read_flash_success(void)
 
     stub_target_nand_read_page_IgnoreAndReturn(0);
 
-    /* Fake cmd_ctx — post_process does not use ctx fields */
-    struct cmd_ctx fake_ctx = {0};
+    struct cmd_ctx fake_ctx = {
+        .transport = &s_fake_transport,
+    };
     int post_rc = resp.post_process(&fake_ctx);
 
     /* Streaming frames:

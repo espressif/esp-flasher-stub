@@ -31,11 +31,11 @@ typedef int (*plugin_cmd_handler_t)(uint8_t command,
 - `command` — the opcode byte.
 - `data` — pointer to the command payload.
 - `len` — payload length in bytes.
-- `resp` — output struct (zeroed by the dispatcher before the call); the handler fills `resp->value`, `resp->data[]`, and `resp->data_size` as needed.
+- `resp` — output struct (zeroed by the dispatcher before the call); the handler fills `resp->value`, `resp->data[]`, and `resp->data_size` as needed. Streaming handlers may also set `resp->post_process` to a callback that runs after the primary response has been sent.
 
-The handler returns an `esp_response_code` value (`RESPONSE_SUCCESS` == 0 on success). The base dispatcher owns SLIP response framing and the post-process step — handlers must **not** send their own SLIP frames.
+The handler returns an `esp_response_code` value (`RESPONSE_SUCCESS` == 0 on success). The base dispatcher owns primary response framing and the post-process step — handlers must **not** send their own response frames. Post-process callbacks receive `struct cmd_ctx`, including `ctx->transport`, and should use that transport for streaming data and polling ACK frames.
 
-Plugin handlers must use **BSS-only global state** — no initialized (`.data`) globals. Only zero-initialized globals (`.bss`) are permitted because only the `.text` and `.bss` sections are present in the plugin binary.
+Plugin handlers must use **BSS-only global state** — no initialized (`.data`) globals and no `.rodata` constants. Only zero-initialized globals (`.bss`) and code/const data emitted into `.text` are permitted because only the `.text` and `.bss` sections are present in the plugin binary.
 
 ### Dispatch
 
@@ -52,6 +52,8 @@ Before uploading the stub, esptool (Python side):
    3. Plugin `.text`
    4. Calls `mem_finish` to start execution
 
+After startup, plugin opcodes use the same command dispatcher and transport operations as base commands. Plugins do not link against base SLIP helper symbols; streaming callbacks use `ctx->transport`.
+
 ### Xtensa IRAM Caveat
 
 On Xtensa cores (ESP32-S2, ESP32-S3), IRAM only supports 32-bit stores. Writing non-4-byte-aligned data to IRAM causes a `LoadStoreError` exception (EXCCAUSE=3). `elf2json.py` automatically pads the plugin `.text` to a 4-byte boundary before embedding it in the JSON file.
@@ -66,7 +68,7 @@ Pass 1: cmake/ninja → base stub ELF
             ▼
 tools/compute_plugin_addrs.py
   Reads base stub ELF, extracts .text, .data, and .bss sizes,
-  computes PLUGIN_TEXT_ADDR and PLUGIN_BSS_ADDR
+  computes <NAME>_PLUGIN_TEXT_ADDR and <NAME>_PLUGIN_BSS_ADDR
             │
             ▼
 Pass 2: cmake/ninja → plugin ELF (linked at computed addresses)
@@ -81,7 +83,7 @@ tools/elf2json.py
 
 | File | Purpose |
 |---|---|
-| `tools/compute_plugin_addrs.py` | Extracts base ELF sizes and computes plugin load addresses |
+| `tools/compute_plugin_addrs.py` | Extracts base ELF sizes and computes one or more plugin load addresses |
 | `tools/elf2json.py` | Converts ELF to JSON; embeds plugin `.text` and `.bss` size |
 | `src/plugin_table.h` | FPT ABI constants and `plugin_cmd_handler_t` typedef |
 | `src/command_handler.c` | Opcode dispatch to FPT |
@@ -108,7 +110,7 @@ Pick unused opcodes from the `0xDE`–`0xEF` range (`0xD5`–`0xDD` are already 
 
 ### Step 2 — Create `src/spi_ram_plugin.c`
 
-Implement functions matching `plugin_cmd_handler_t`. Use only BSS globals (no `.data` initializers). Include `plugin_table.h`:
+Implement functions matching `plugin_cmd_handler_t`. Use only BSS globals (no `.data` initializers and no `.rodata` constants). Include `plugin_table.h`:
 
 ```c
 #include "plugin_table.h"
@@ -154,27 +156,27 @@ Implement target-specific functions (e.g., `src/target/esp32s3/src/spi_ram.c`) f
 
 ### Step 5 — Update `CMakeLists.txt`
 
-Add detection of the new HAL file (analogous to `_NAND_C`), then define an `add_executable` target for the plugin and pass the computed load addresses:
+Add detection of the new HAL file (analogous to `_NAND_C`), then call `stub_add_plugin()` with the plugin sources and computed load-address variable names:
 
 ```cmake
 set(_SPI_RAM_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/spi_ram.c)
 
 if(EXISTS "${_SPI_RAM_C}")
-    add_executable(${SPI_RAM_PLUGIN_NAME}
-        spi_ram_plugin.c
-        ${_SPI_RAM_C}
-    )
-    target_link_options(${SPI_RAM_PLUGIN_NAME} PRIVATE
-        -T${PLUGIN_LD}
-        -Wl,--defsym,PLUGIN_TEXT_ADDR=${PLUGIN_TEXT_ADDR}
-        -Wl,--defsym,PLUGIN_BSS_ADDR=${PLUGIN_BSS_ADDR}
+    stub_add_plugin(
+        NAME          spi_ram
+        SOURCES
+            spi_ram_plugin.c
+            ${_SPI_RAM_C}
+        LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/spi_ram_plugin.ld
+        TEXT_ADDR     SPI_RAM_PLUGIN_TEXT_ADDR
+        BSS_ADDR      SPI_RAM_PLUGIN_BSS_ADDR
     )
 endif()
 ```
 
 ### Step 6 — Update `tools/elf2json.py`
 
-Add `--plugin spi_ram <elf>` argument handling. The script must read the plugin ELF's `.text` (padded to 4 bytes for Xtensa), resolve handler symbol addresses, and record the plugin in the output JSON under the `plugins` key:
+Register the plugin handler symbols in `PLUGIN_HANDLER_SYMBOLS`. `elf2json.py` already accepts repeated `--plugin <name> <elf>` arguments, reads each plugin ELF's `.text` (padded to 4 bytes for Xtensa), resolves handler symbol addresses, and records the plugin in the output JSON under the `plugins` key:
 
 ```json
 "plugins": {

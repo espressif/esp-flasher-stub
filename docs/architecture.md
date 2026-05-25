@@ -2,22 +2,22 @@
 
 ## Overview
 
-The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) over a serial transport using the [SLIP](https://datatracker.ietf.org/doc/html/rfc1055) protocol to perform flash programming and other operations.
+The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) through a transport abstraction to perform flash programming and other operations. UART, USB-Serial-JTAG, and USB-OTG carry [SLIP](https://datatracker.ietf.org/doc/html/rfc1055)-framed commands; SDIO carries raw command frames.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Host (esptool)                                         │
-│  Sends SLIP-framed commands over UART / USB             │
+│  Sends command frames over UART / USB / SDIO            │
 └───────────────────────┬─────────────────────────────────┘
                         │
-            UART / USB-Serial-JTAG / USB-OTG
+            UART / USB-Serial-JTAG / USB-OTG / SDIO
                         │
 ┌───────────────────────▼─────────────────────────────────┐
 │  ESP Flasher Stub (runs in chip RAM)                    │
 │                                                         │
 │  ┌──────────┐  ┌───────────────┐  ┌──────────────────┐  │
-│  │Transport │→ │ SLIP Protocol │→ │ Command Handler  │  │
-│  │  Layer   │  │   Decoder     │  │   & Dispatch     │  │
+│  │Transport │→ │ Frame Buffer  │→ │ Command Handler  │  │
+│  │  Layer   │  │ + SLIP/SDIO   │  │   & Dispatch     │  │
 │  └──────────┘  └───────────────┘  └────────┬─────────┘  │
 │                                            │            │
 │                                   ┌────────▼─────────┐  │
@@ -39,13 +39,14 @@ The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chi
 ```
 src/
 ├── main.c              Entry point (esp_main), BSS init, main loop
-├── slip.c / slip.h     SLIP protocol framing (send and receive)
+├── frame_buffer.c / .h Shared double-buffered RX frame storage
+├── slip.c / slip.h     SLIP byte-stuffing and byte-stream decoding
 ├── command_handler.c   Command parsing, dispatch, and response
-├── command_handler.h   Public API and buffer size definitions
+├── command_handler.h   Command context and response API
 ├── commands.h          Command IDs and response codes
 ├── plugin_table.h      Function Pointer Table ABI (plugin system)
-├── nand_plugin.c       NAND flash plugin (9 handlers, ESP32-S3 only)
-├── transport.c / .h    Transport detection and initialization
+├── nand_plugin.c       NAND flash plugin (9 handlers)
+├── transport.c / .h    Transport detection, initialization, and RX/TX operations
 ├── endian_utils.h      Byte-order conversion helpers
 └── ld/                 Linker scripts (one per chip + common.ld + nand_plugin.ld)
 ```
@@ -67,7 +68,8 @@ The build requires the `-DTARGET_CHIP=<chip>` parameter. The CMake configuration
 2. Selects the appropriate cross-compiler prefix (Xtensa or RISC-V).
 3. Applies architecture-specific compiler flags.
 4. Links with a chip-specific linker script from `src/ld/`.
-5. Runs `tools/elf2json.py` as a post-build step to generate the JSON stub file.
+5. Applies target-local size workarounds where needed, such as `-fdata-sections` only for ESP8266 `miniz_obj`.
+6. Runs `tools/elf2json.py` as a post-build step to generate the JSON stub file.
 
 ## Linker Scripts
 
@@ -86,6 +88,8 @@ The `common.ld` file defines sections (`.text`, `.bss`, `.data`) and sets the en
 ## Plugin System
 
 The stub supports runtime-loadable plugins that extend the command set. Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array in the base stub's `.data` segment, indexed by opcode (range `0xD5`–`0xEF`). At startup all entries default to `s_plugin_unsupported`. esptool patches the relevant entries and uploads the plugin binary before handing off control.
+
+Command handlers and plugin post-process callbacks receive a `struct cmd_ctx` that includes the selected transport operations. Streaming code should send data and poll ACKs through `ctx->transport`, so plugin code stays independent of whether the host is using SLIP-based UART/USB or raw SDIO.
 
 For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the build uses a **two-pass** process:
 

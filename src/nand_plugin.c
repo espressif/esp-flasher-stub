@@ -5,9 +5,8 @@
  *
  * NAND flash plugin — compiled as a separate binary loaded at runtime by esptool.
  *
- * SLIP functions (slip_send_frame, slip_recv_reset, slip_is_frame_complete,
- * slip_get_frame_data) are forwarded to the base stub via PROVIDE in the linker
- * script. They access the same SLIP state that the UART ISR writes to.
+ * Streaming post-process callbacks use ctx->transport, so the plugin stays
+ * independent of the concrete link protocol selected by the base stub.
  */
 #include <stdint.h>
 #include <string.h>
@@ -19,12 +18,7 @@
 #include "command_handler.h"
 #include "endian_utils.h"
 #include "plugin_table.h"
-
-/* ---- SLIP forward declarations (resolved to base stub via PROVIDE) --------- */
-extern void slip_send_frame(const void *data, size_t size);
-extern void slip_recv_reset(void);
-extern bool slip_is_frame_complete(void);
-extern const uint8_t *slip_get_frame_data(size_t *length);
+#include "transport.h"
 
 /* ---- NAND geometry constants ----------------------------------------------- */
 #define NAND_PAGE_SIZE 2048
@@ -81,7 +75,7 @@ static struct {
  * NAND read operation state — stashed in plugin BSS so the post-process
  * callback can pick up parameters parsed by nand_plugin_read_flash.
  * Using BSS avoids data-layout assumptions about the command payload pointer
- * (whose lifetime ends when slip_recv_reset() is called at the top of the
+ * (whose lifetime ends when recv_release() is called at the top of the
  * streaming loop).  This mirrors the base stub's s_flash_state pattern.
  */
 static struct {
@@ -173,8 +167,6 @@ static int nand_fill_send_buf(uint8_t *send_buf, uint8_t *page_buf,
  */
 static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
 {
-    (void)ctx;
-
     uint32_t offset = s_nand_read_state.offset;
     uint32_t read_size = s_nand_read_state.read_size;
     uint32_t packet_size = s_nand_read_state.packet_size;
@@ -186,8 +178,8 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
      * this bound before we are called. */
     static uint8_t send_buf[NAND_PAGE_SIZE * 2] __attribute__((aligned(4)));
 
-    /* Reset receive state to accept ACK frames from the host */
-    slip_recv_reset();
+    /* Release the READ_FLASH command frame so the buffer can receive ACKs */
+    ctx->transport->recv_release();
 
     uint32_t read_size_remaining = read_size;
     uint32_t sent_packets = 0;
@@ -200,10 +192,12 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
     stub_lib_md5_init(&md5_ctx);
 
     while (read_size_remaining > 0 || acked_data_size < read_size) {
-        /* Check for ACK from host */
-        if (slip_is_frame_complete()) {
-            size_t slip_size;
-            const uint8_t *slip_data = slip_get_frame_data(&slip_size);
+        size_t slip_size;
+        bool ack_error;
+        const uint8_t *slip_data = ctx->transport->recv_poll(&slip_size, &ack_error);
+        if (ack_error) {
+            ctx->transport->recv_release();
+        } else if (slip_data != NULL) {
             if (slip_size == sizeof(acked_data_size)) {
                 memcpy(&acked_data_size, slip_data, sizeof(acked_data_size));
                 /* Only count ACKs for validated frames, and never exceed sent_packets */
@@ -211,7 +205,7 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
                     acked_packets++;
                 }
             }
-            slip_recv_reset();
+            ctx->transport->recv_release();
         }
 
         /* Avoid unsigned underflow when computing unacked packet count */
@@ -239,7 +233,7 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
             }
 
             stub_lib_md5_update(&md5_ctx, send_buf, actual_read_size);
-            slip_send_frame(send_buf, actual_read_size);
+            ctx->transport->send_frame(send_buf, actual_read_size);
             read_size_remaining -= actual_read_size;
             sent_packets++;
         }
@@ -252,7 +246,7 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
             md5[i] ^= 0xFF;  /* intentionally corrupt — see comment above */
         }
     }
-    slip_send_frame(md5, sizeof(md5));
+    ctx->transport->send_frame(md5, sizeof(md5));
     return RESPONSE_SUCCESS;
 }
 

@@ -27,7 +27,7 @@ The W25N01GVxxxG/T/R family is supported (1 Gbit, SPI NAND).
 
 NAND support is implemented as a [plugin](../plugin-system.md) that runs on top of the base stub. The base stub JSON for ESP32-S3 includes a `plugins.nand` section with the plugin binary, load addresses, and a handler offset table. The host tool detects the plugin via the `plugins` key in the stub JSON and loads it when NAND operations are requested.
 
-Loading sequence: the host parses the base stub JSON, patches the Function Pointer Table (FPT) in the base stub `.data` segment with the per-opcode handler addresses from the plugin, appends plugin BSS zeros to the data upload, and uploads the plugin `.text` immediately after the base stub `.text`. After that, the host issues plugin opcodes using the same SLIP framing as base stub commands.
+Loading sequence: the host parses the base stub JSON, patches the Function Pointer Table (FPT) in the base stub `.data` segment with the per-opcode handler addresses from the plugin, appends plugin BSS zeros to the data upload, and uploads the plugin `.text` immediately after the base stub `.text`. After that, the host issues plugin opcodes using the same transport framing as base stub commands: SLIP for UART/USB transports and raw frames for SDIO.
 
 All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler signature is `plugin_cmd_handler_t` (see `plugin_table.h`).
 
@@ -77,7 +77,7 @@ All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler sig
 
 ### `0xDA` — `SPI_NAND_WRITE_FLASH_DATA`
 
-**Request payload**: 16-byte header (`data_len` at bytes 0–3, rest unused) + `data_len` bytes of flash data. The XOR checksum of the flash data must be in the SLIP framing header at offset −4 relative to the payload pointer.
+**Request payload**: 16-byte header (`data_len` at bytes 0–3, rest unused) + `data_len` bytes of flash data. The XOR checksum of the flash data must be in the command frame header at offset −4 relative to the payload pointer.
 
 **Response**: `RESPONSE_SUCCESS` after each packet. Mid-stream full-page flush errors are reported inline as `RESPONSE_FAILED_SPI_OP`.
 

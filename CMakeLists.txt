@@ -44,5 +44,11 @@ add_link_options(${COMMON_LINKER_FLAGS})
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/esp-stub-lib)
 
+if(TARGET_CHIP STREQUAL "esp8266" AND TARGET miniz_obj)
+    # Keep miniz's unused tdefl static tables out of the ESP8266 stub without
+    # applying -fdata-sections globally, which increases size on other targets.
+    target_compile_options(miniz_obj PRIVATE -fdata-sections)
+endif()
+
 # Add stub target
 add_subdirectory(${CMAKE_SOURCE_DIR}/src)

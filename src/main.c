@@ -11,7 +11,6 @@
 #include <esp-stub-lib/clock.h>
 #include <esp-stub-lib/usb_otg.h>
 #include "command_handler.h"
-#include "slip.h"
 #include "transport.h"
 
 #ifdef ESP8266
@@ -39,36 +38,39 @@ void esp_main(void)
     // stub_lib_clock_init() increases CPU frequency which benefits both USB and UART transfers.
     // Currently only enabled for USB transfers due to concerns about instability (observed on ESP32-S3),
     // because DBIAS voltage not being set. This needs investigation and potentially enabling for all transport types.
-    if (transport == STUB_TRANSPORT_USB_OTG || transport == STUB_TRANSPORT_USB_SERIAL_JTAG) {
+    if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG || transport == TRANSPORT_SDIO) {
         stub_lib_clock_init();
     }
 
     stub_lib_flash_init(NULL);
     stub_lib_flash_attach(0, false);
-
-    stub_transport_init(transport);
+    const struct stub_transport_ops *ops = stub_transport_init(transport);
 
     // Send OHAI greeting to signal stub is active
-    const uint8_t greeting[4] = {'O', 'H', 'A', 'I'};
-    slip_send_frame(&greeting, sizeof(greeting));
+    const uint8_t greeting[4] __attribute__((aligned(4))) = {'O', 'H', 'A', 'I'};
+    ops->send_frame(&greeting, sizeof(greeting));
 
     for (;;) {
-        int frame_state = slip_get_frame_state();
-        if (frame_state == SLIP_STATE_COMPLETE) {
-            size_t frame_length;
-            const uint8_t *frame_data = slip_get_frame_data(&frame_length);
-            handle_command(frame_data, frame_length);
-            slip_recv_reset();
+        size_t frame_length;
+        bool frame_error;
+        const uint8_t *frame_data = ops->recv_poll(&frame_length, &frame_error);
+
+        if (frame_error) {
+            ops->recv_release();
             continue;
         }
 
-        if (frame_state == SLIP_STATE_ERROR) {
-            slip_recv_reset();
+        if (frame_data != NULL) {
+            handle_command(frame_data, frame_length, ops);
+            // Redundant for post-process commands (e.g. READ_FLASH) that release
+            // the command frame themselves; recv_release is idempotent and never
+            // touches the buffer being received into, so this is safe.
+            ops->recv_release();
             continue;
         }
 
         // Handle chip reset requests via CDC-ACM RTS line toggling in USB-OTG mode
-        if (transport == STUB_TRANSPORT_USB_OTG && stub_lib_usb_otg_is_reset_requested()) {
+        if (transport == TRANSPORT_USB_OTG && stub_lib_usb_otg_is_reset_requested()) {
             stub_lib_usb_otg_handle_reset();
         }
     }

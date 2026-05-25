@@ -117,18 +117,18 @@ add_host_test(TestSlip
     SOURCES
         TestSlip.c
         ../../src/slip.c
+        ../../src/frame_buffer.c
 )
 
-# TestNandPlugin — tests nand_plugin.c handlers using mocked nand, slip, and md5.
+# TestNandPlugin — tests nand_plugin.c handlers using mocked nand and md5.
 # Handlers return status codes; the dispatcher sends the primary response frame.
-# Only streaming post_process paths should call slip_send_frame().
+# Streaming post_process paths use a fake transport.
 add_executable(TestNandPlugin
     TestNandPlugin.c
     ../../src/nand_plugin.c
     ${UNITY_SOURCES}
     ${CMOCK_SOURCES}
     ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_nand.c
-    ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_slip.c
     ${CMAKE_CURRENT_BINARY_DIR}/mocks/mock_md5.c
 )
 
