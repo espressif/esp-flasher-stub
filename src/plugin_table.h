@@ -51,6 +51,14 @@ typedef int (*plugin_cmd_handler_t)(uint8_t command,
                                     struct command_response_data *resp);
 
 /*
+ * Plugin handlers are only called at runtime after esptool patches the FPT in
+ * the base stub; the plugin link therefore has no in-image references to them.
+ * Each plugin linker script must EXTERN() every handler symbol listed in
+ * tools/elf2json.py PLUGIN_HANDLER_SYMBOLS so --gc-sections retains them.
+ * elf2json.py fails the build if any listed symbol is missing from the plugin ELF.
+ */
+
+/*
  * Global Function Pointer Table — populated with s_plugin_unsupported
  * defaults by the base stub, patched by esptool at upload time when a
  * plugin is loaded.

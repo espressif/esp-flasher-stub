@@ -33,6 +33,7 @@ set(XTENSA_COMPILER_FLAGS
     -DXTENSA
     -mlongcalls
     -mtext-section-literals
+    -flto
 )
 
 # ESP8266-specific compiler flags
@@ -50,6 +51,7 @@ set(RISCV_COMPILER_FLAGS
     -march=rv32imc
     -mabi=ilp32
     -msmall-data-limit=0
+    -flto
 )
 
 # Common linker flags for all targets
@@ -57,6 +59,7 @@ set(COMMON_LINKER_FLAGS
     "-nostdlib"
     "-Wl,-static"
     "-Wl,--gc-sections"
+    "-Werror=lto-type-mismatch"
 )
 
 # =============================================================================
@@ -107,6 +110,9 @@ function(configure_esp_toolchain TARGET_CHIP)
     set(CMAKE_SYSTEM_NAME Generic PARENT_SCOPE)
     set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}gcc PARENT_SCOPE)
     set(CMAKE_LINKER ${TOOLCHAIN_PREFIX}gcc PARENT_SCOPE)
+    set(CMAKE_AR ${TOOLCHAIN_PREFIX}gcc-ar PARENT_SCOPE)
+    set(CMAKE_RANLIB ${TOOLCHAIN_PREFIX}gcc-ranlib PARENT_SCOPE)
+    set(CMAKE_NM ${TOOLCHAIN_PREFIX}gcc-nm PARENT_SCOPE)
     set(CMAKE_EXECUTABLE_SUFFIX_C ".elf" PARENT_SCOPE)
 
     # ESP8266 specific handling

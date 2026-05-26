@@ -37,6 +37,34 @@ The handler returns an `esp_response_code` value (`RESPONSE_SUCCESS` == 0 on suc
 
 Plugin handlers must use **BSS-only global state** — no initialized (`.data`) globals and no `.rodata` constants. Only zero-initialized globals (`.bss`) and code/const data emitted into `.text` are permitted because only the `.text` and `.bss` sections are present in the plugin binary.
 
+### Keeping handler symbols in the plugin ELF
+
+Handlers are only invoked at runtime after esptool patches the FPT in the base stub. The plugin link has no in-image call graph to those functions, so the linker may drop them under `-ffunction-sections` and `--gc-sections`.
+
+Every exported handler must:
+
+1. Have **global linkage** and a stable symbol name (matching `PLUGIN_HANDLER_SYMBOLS` in `tools/elf2json.py`).
+2. Be listed with **`EXTERN(<symbol>)`** in the plugin linker script (see `src/ld/nand_plugin.ld`). `EXTERN` roots the symbol for the linker regardless of LTO or section layout.
+
+```c
+int my_plugin_attach(uint8_t command, const uint8_t *data,
+                     uint32_t len, struct command_response_data *resp)
+{
+    ...
+}
+```
+
+```ld
+ENTRY(my_plugin_attach)
+EXTERN(my_plugin_attach);
+EXTERN(my_plugin_read);
+/* one EXTERN per handler in PLUGIN_HANDLER_SYMBOLS */
+```
+
+If a handler is missing from the linker script, the plugin ELF may link successfully but `elf2json.py` fails during the post-build step with “missing handler symbol(s)”.
+
+The plugin linker script must set **`ENTRY(<attach_handler>)`** after `INCLUDE common.ld` so `ENTRY(esp_main)` from `common.ld` is overridden (required for Xtensa). `ENTRY` alone roots only the attach handler; list every other handler with `EXTERN`.
+
 ### Dispatch
 
 `handle_command()` in `src/command_handler.c` checks whether the incoming opcode falls in the range `0xD5`–`0xEF`. If so, it indexes into the FPT and calls the corresponding handler. If the entry is still `s_plugin_unsupported`, an error response is returned.
@@ -110,23 +138,23 @@ Pick unused opcodes from the `0xDE`–`0xEF` range (`0xD5`–`0xDD` are already 
 
 ### Step 2 — Create `src/spi_ram_plugin.c`
 
-Implement functions matching `plugin_cmd_handler_t`. Use only BSS globals (no `.data` initializers and no `.rodata` constants). Include `plugin_table.h`:
+Implement functions matching `plugin_cmd_handler_t`. Use only BSS globals (no `.data` initializers and no `.rodata` constants). Include `plugin_table.h` for the ABI typedef. Every handler that appears in `PLUGIN_HANDLER_SYMBOLS` must be a global function with a stable symbol name:
 
 ```c
 #include "plugin_table.h"
 
 static uint32_t s_ram_size;   /* BSS — zero-initialized */
 
-static int cmd_spi_ram_attach(uint8_t command, const uint8_t *data,
-                              uint32_t len, struct command_response_data *resp)
+int spi_ram_plugin_attach(uint8_t command, const uint8_t *data,
+                          uint32_t len, struct command_response_data *resp)
 {
     (void)command;
     /* init hardware, fill resp if needed, return status code */
     return RESPONSE_SUCCESS;
 }
 
-static int cmd_spi_ram_read(uint8_t command, const uint8_t *data,
-                            uint32_t len, struct command_response_data *resp)
+int spi_ram_plugin_read(uint8_t command, const uint8_t *data,
+                        uint32_t len, struct command_response_data *resp)
 {
     (void)command;
     /* read, fill resp->data / resp->data_size, return status code */
@@ -136,18 +164,21 @@ static int cmd_spi_ram_read(uint8_t command, const uint8_t *data,
 
 ### Step 3 — Create `src/ld/spi_ram_plugin.ld`
 
-Follow the pattern of `src/ld/nand_plugin.ld`. The plugin must contain only `.text` and `.bss` sections and must be linked at the addresses supplied by CMake:
+Follow the pattern of `src/ld/nand_plugin.ld`. CMake supplies `PLUGIN_TEXT_ADDR` and `PLUGIN_BSS_ADDR` via `-Wl,--defsym`. Reuse `common.ld` for section layout; override the entry point and `EXTERN` every handler symbol:
 
 ```ld
 MEMORY {
-    iram (rx) : org = PLUGIN_TEXT_ADDR, len = 0x10000
-    dram (rw) : org = PLUGIN_BSS_ADDR,  len = 0x10000
+    iram : org = PLUGIN_TEXT_ADDR, len = 0x10000
+    dram : org = PLUGIN_BSS_ADDR,  len = 0x10000
 }
 
-SECTIONS {
-    .text : { *(.text .text.*) } > iram
-    .bss  : { *(.bss  .bss.*)  } > dram
-}
+INCLUDE common.ld
+
+ENTRY(spi_ram_plugin_attach)
+EXTERN(spi_ram_plugin_attach);
+EXTERN(spi_ram_plugin_read);
+
+ASSERT(SIZEOF(.data) == 0, "Plugin must not have initialized .data — use BSS instead")
 ```
 
 ### Step 4 — Add Target HAL in `esp-stub-lib`
@@ -193,7 +224,7 @@ Register the plugin handler symbols in `PLUGIN_HANDLER_SYMBOLS`. `elf2json.py` a
 }
 ```
 
-The `handlers` map contains opcode → offset-from-plugin-text-start pairs. Register the handler symbols in the `PLUGIN_HANDLER_SYMBOLS` dict at the top of `elf2json.py`.
+The `handlers` map contains opcode → offset-from-plugin-text-start pairs. Register the handler symbols in the `PLUGIN_HANDLER_SYMBOLS` dict at the top of `elf2json.py`. Each symbol named there must be implemented in the plugin C source and listed with `EXTERN()` in the plugin linker script.
 
 ### Step 7 — Update esptool (Python Side)
 

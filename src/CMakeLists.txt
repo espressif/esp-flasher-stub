@@ -77,6 +77,7 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         add_executable(${_plugin_target}
             ${_PA_SOURCES}
         )
+        add_dependencies(${_plugin_target} ${TARGET_NAME})
 
         target_include_directories(${_plugin_target} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
@@ -97,9 +98,6 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         endforeach()
 
         target_link_options(${_plugin_target} PRIVATE
-            # The global add_link_options sets --gc-sections which crashes
-            # the xtensa linker when linking a position-dependent plugin binary.
-            -Wl,--no-gc-sections
             -L${LINKER_SCRIPTS_DIR}
             "-T${_PA_LINKER_SCRIPT}"
             -Wl,--defsym,PLUGIN_TEXT_ADDR=${${_PA_TEXT_ADDR}}
