@@ -18,7 +18,7 @@ except ImportError:
     raise SystemExit('pyelftools not found. Install with: pip install pyelftools')
 
 
-# Registry of plugin handler symbols.
+# Registry of plugin handler symbols (must match EXTERN() in each plugin .ld).
 # Add a new entry here when adding a new plugin.
 PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
     'nand': {
