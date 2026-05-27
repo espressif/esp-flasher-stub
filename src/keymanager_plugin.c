@@ -120,15 +120,29 @@ static stub_km_key_purpose_t km_primary_purpose(stub_km_key_type_t kt,
                                                 stub_km_key_len_t kl)
 {
     if (kt == STUB_KM_KEY_TYPE_ECDSA) {
-        if (kl == STUB_KM_KEY_LEN_ECDSA_192) { return STUB_KM_KEY_PURPOSE_ECDSA_192; }
-        if (kl == STUB_KM_KEY_LEN_ECDSA_256) { return STUB_KM_KEY_PURPOSE_ECDSA_256; }
-        if (kl == STUB_KM_KEY_LEN_ECDSA_384) { return STUB_KM_KEY_PURPOSE_ECDSA_384_H; }
+        if (kl == STUB_KM_KEY_LEN_ECDSA_192) {
+            return STUB_KM_KEY_PURPOSE_ECDSA_192;
+        }
+        if (kl == STUB_KM_KEY_LEN_ECDSA_256) {
+            return STUB_KM_KEY_PURPOSE_ECDSA_256;
+        }
+        if (kl == STUB_KM_KEY_LEN_ECDSA_384) {
+            return STUB_KM_KEY_PURPOSE_ECDSA_384_H;
+        }
     } else if (kt == STUB_KM_KEY_TYPE_FLASH_XTS_AES) {
-        if (kl == STUB_KM_KEY_LEN_XTS_AES_128) { return STUB_KM_KEY_PURPOSE_FLASH_128; }
-        if (kl == STUB_KM_KEY_LEN_XTS_AES_256) { return STUB_KM_KEY_PURPOSE_FLASH_256_1; }
+        if (kl == STUB_KM_KEY_LEN_XTS_AES_128) {
+            return STUB_KM_KEY_PURPOSE_FLASH_128;
+        }
+        if (kl == STUB_KM_KEY_LEN_XTS_AES_256) {
+            return STUB_KM_KEY_PURPOSE_FLASH_256_1;
+        }
     } else if (kt == STUB_KM_KEY_TYPE_PSRAM_XTS_AES) {
-        if (kl == STUB_KM_KEY_LEN_XTS_AES_128) { return STUB_KM_KEY_PURPOSE_PSRAM_128; }
-        if (kl == STUB_KM_KEY_LEN_XTS_AES_256) { return STUB_KM_KEY_PURPOSE_PSRAM_256_1; }
+        if (kl == STUB_KM_KEY_LEN_XTS_AES_128) {
+            return STUB_KM_KEY_PURPOSE_PSRAM_128;
+        }
+        if (kl == STUB_KM_KEY_LEN_XTS_AES_256) {
+            return STUB_KM_KEY_PURPOSE_PSRAM_256_1;
+        }
     } else if (kt == STUB_KM_KEY_TYPE_HMAC) {
         return STUB_KM_KEY_PURPOSE_HMAC;
     } else if (kt == STUB_KM_KEY_TYPE_DS) {
@@ -140,15 +154,21 @@ static stub_km_key_purpose_t km_primary_purpose(stub_km_key_type_t kt,
 static bool km_is_multi_stage(stub_km_key_purpose_t p)
 {
     return p == STUB_KM_KEY_PURPOSE_FLASH_256_1
-        || p == STUB_KM_KEY_PURPOSE_PSRAM_256_1
-        || p == STUB_KM_KEY_PURPOSE_ECDSA_384_H;
+           || p == STUB_KM_KEY_PURPOSE_PSRAM_256_1
+           || p == STUB_KM_KEY_PURPOSE_ECDSA_384_H;
 }
 
 static stub_km_key_purpose_t km_secondary_purpose(stub_km_key_purpose_t p)
 {
-    if (p == STUB_KM_KEY_PURPOSE_FLASH_256_1) { return STUB_KM_KEY_PURPOSE_FLASH_256_2; }
-    if (p == STUB_KM_KEY_PURPOSE_PSRAM_256_1) { return STUB_KM_KEY_PURPOSE_PSRAM_256_2; }
-    if (p == STUB_KM_KEY_PURPOSE_ECDSA_384_H) { return STUB_KM_KEY_PURPOSE_ECDSA_384_L; }
+    if (p == STUB_KM_KEY_PURPOSE_FLASH_256_1) {
+        return STUB_KM_KEY_PURPOSE_FLASH_256_2;
+    }
+    if (p == STUB_KM_KEY_PURPOSE_PSRAM_256_1) {
+        return STUB_KM_KEY_PURPOSE_PSRAM_256_2;
+    }
+    if (p == STUB_KM_KEY_PURPOSE_ECDSA_384_H) {
+        return STUB_KM_KEY_PURPOSE_ECDSA_384_L;
+    }
     return STUB_KM_KEY_PURPOSE_INVALID;
 }
 
@@ -166,8 +186,8 @@ static uint32_t km_key_info_slot(stub_km_key_purpose_t p)
      * upper 64 bytes of the 128-byte key_info wire payload.  Everything
      * else (single-stage AND multi-stage primary) writes slot 0. */
     if (p == STUB_KM_KEY_PURPOSE_FLASH_256_2
-        || p == STUB_KM_KEY_PURPOSE_PSRAM_256_2
-        || p == STUB_KM_KEY_PURPOSE_ECDSA_384_L) {
+            || p == STUB_KM_KEY_PURPOSE_PSRAM_256_2
+            || p == STUB_KM_KEY_PURPOSE_ECDSA_384_L) {
         return 1U;
     }
     return 0U;
@@ -224,13 +244,15 @@ static int km_run_one_stage(stub_km_keygen_mode_t mode,
     stub_target_km_set_keygen_mode(mode);
     stub_target_km_set_key_purpose(purpose);
     if (key_type == STUB_KM_KEY_TYPE_FLASH_XTS_AES
-        || key_type == STUB_KM_KEY_TYPE_PSRAM_XTS_AES) {
+            || key_type == STUB_KM_KEY_TYPE_PSRAM_XTS_AES) {
         stub_target_km_set_xts_aes_key_len(
             key_type, key_len == STUB_KM_KEY_LEN_XTS_AES_256);
     }
     if (pre_start_cb != NULL) {
         int err = pre_start_cb(purpose, hdr, data, data_len);
-        if (err != 0) { return err; }
+        if (err != 0) {
+            return err;
+        }
     }
     stub_target_km_start();
 
@@ -238,7 +260,9 @@ static int km_run_one_stage(stub_km_keygen_mode_t mode,
     stub_target_km_wait_for_state(STUB_KM_STATE_LOAD);
     if (load_cb != NULL) {
         int err = load_cb(purpose, hdr, data, data_len);
-        if (err != 0) { return err; }
+        if (err != 0) {
+            return err;
+        }
     }
     stub_target_km_continue();
 
@@ -250,7 +274,9 @@ static int km_run_one_stage(stub_km_keygen_mode_t mode,
         STUB_KM_KEY_RECOVERY_INFO_SIZE);
     if (gain_cb != NULL) {
         int err = gain_cb(purpose);
-        if (err != 0) { return err; }
+        if (err != 0) {
+            return err;
+        }
     }
 
     /* Validation: KM reports per-key-type "deployment valid" once GAIN has
@@ -306,14 +332,18 @@ static int km_run_deploy(stub_km_keygen_mode_t mode,
     int err = km_run_one_stage(mode, purpose, key_type, key_len, hdr,
                                data, data_len,
                                pre_start_cb, load_cb, gain_cb);
-    if (err != 0) { return err; }
+    if (err != 0) {
+        return err;
+    }
 
     if (is_multi) {
         stub_km_key_purpose_t secondary = km_secondary_purpose(purpose);
         err = km_run_one_stage(mode, secondary, key_type, key_len, hdr,
                                data, data_len,
                                pre_start_cb, load_cb, gain_cb);
-        if (err != 0) { return err; }
+        if (err != 0) {
+            return err;
+        }
     }
 
     /* Switch the static config to "use own key" so the downstream
@@ -345,7 +375,9 @@ int km_plugin_key_deploy_random(uint8_t command, const uint8_t *data,
     int err = km_run_deploy(STUB_KM_KEYGEN_MODE_RANDOM, hdr, NULL, 0U,
                             NULL, km_load_random, NULL,
                             KM_PENDING_KEY_INFO);
-    if (err != RESPONSE_SUCCESS) { return err; }
+    if (err != RESPONSE_SUCCESS) {
+        return err;
+    }
     resp->post_process = s_km_post_process;
     return RESPONSE_SUCCESS;
 }
@@ -374,8 +406,8 @@ int km_plugin_key_deploy_random(uint8_t command, const uint8_t *data,
 static uint32_t km_aes_k1_encrypted_slot(stub_km_key_purpose_t p)
 {
     if (p == STUB_KM_KEY_PURPOSE_FLASH_256_2
-        || p == STUB_KM_KEY_PURPOSE_PSRAM_256_2
-        || p == STUB_KM_KEY_PURPOSE_ECDSA_384_L) {
+            || p == STUB_KM_KEY_PURPOSE_PSRAM_256_2
+            || p == STUB_KM_KEY_PURPOSE_ECDSA_384_L) {
         return 1U;
     }
     return 0U;
@@ -438,7 +470,9 @@ int km_plugin_key_deploy_aes(uint8_t command, const uint8_t *data,
                             len - KM_DEPLOY_HEADER_SIZE,
                             km_pre_start_aes, km_load_aes, NULL,
                             KM_PENDING_KEY_INFO);
-    if (err != RESPONSE_SUCCESS) { return err; }
+    if (err != RESPONSE_SUCCESS) {
+        return err;
+    }
     resp->post_process = s_km_post_process;
     return RESPONSE_SUCCESS;
 }
@@ -458,8 +492,8 @@ int km_plugin_key_deploy_aes(uint8_t command, const uint8_t *data,
 static uint32_t km_ecdh_k1g_slot(stub_km_key_purpose_t p)
 {
     if (p == STUB_KM_KEY_PURPOSE_FLASH_256_2
-        || p == STUB_KM_KEY_PURPOSE_PSRAM_256_2
-        || p == STUB_KM_KEY_PURPOSE_ECDSA_384_L) {
+            || p == STUB_KM_KEY_PURPOSE_PSRAM_256_2
+            || p == STUB_KM_KEY_PURPOSE_ECDSA_384_L) {
         return 1U;
     }
     return 0U;
@@ -504,7 +538,9 @@ int km_plugin_key_deploy_ecdh0(uint8_t command, const uint8_t *data,
                             len - KM_DEPLOY_HEADER_SIZE,
                             NULL, km_load_ecdh0, km_gain_ecdh0,
                             KM_PENDING_ECDH0);
-    if (err != RESPONSE_SUCCESS) { return err; }
+    if (err != RESPONSE_SUCCESS) {
+        return err;
+    }
     resp->post_process = s_km_post_process;
     return RESPONSE_SUCCESS;
 }
@@ -581,7 +617,9 @@ int km_plugin_key_deploy_ecdh1(uint8_t command, const uint8_t *data,
                             len - KM_DEPLOY_HEADER_SIZE,
                             km_pre_start_ecdh1, km_load_ecdh1, NULL,
                             KM_PENDING_KEY_INFO);
-    if (err != RESPONSE_SUCCESS) { return err; }
+    if (err != RESPONSE_SUCCESS) {
+        return err;
+    }
     resp->post_process = s_km_post_process;
     return RESPONSE_SUCCESS;
 }
@@ -621,7 +659,9 @@ int km_plugin_key_recovery(uint8_t command, const uint8_t *data,
                             len - KM_DEPLOY_HEADER_SIZE,
                             NULL, km_load_recovery, NULL,
                             KM_PENDING_NONE);
-    if (err != RESPONSE_SUCCESS) { return err; }
+    if (err != RESPONSE_SUCCESS) {
+        return err;
+    }
     /* No post_process — successful key_recovery returns status only. */
     (void)resp;
     return RESPONSE_SUCCESS;
@@ -693,9 +733,9 @@ int km_plugin_huk_recovery(uint8_t command, const uint8_t *data,
 
     uint32_t expected_crc = esp_rom_crc32_le(0U, data, STUB_KM_HUK_INFO_SIZE);
     uint32_t supplied_crc = ((uint32_t)data[STUB_KM_HUK_INFO_SIZE + 0])
-                          | ((uint32_t)data[STUB_KM_HUK_INFO_SIZE + 1] << 8)
-                          | ((uint32_t)data[STUB_KM_HUK_INFO_SIZE + 2] << 16)
-                          | ((uint32_t)data[STUB_KM_HUK_INFO_SIZE + 3] << 24);
+                            | ((uint32_t)data[STUB_KM_HUK_INFO_SIZE + 1] << 8)
+                            | ((uint32_t)data[STUB_KM_HUK_INFO_SIZE + 2] << 16)
+                            | ((uint32_t)data[STUB_KM_HUK_INFO_SIZE + 3] << 24);
     if (supplied_crc != expected_crc) {
         return RESPONSE_BAD_DATA_CHECKSUM;
     }
