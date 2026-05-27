@@ -49,6 +49,15 @@ extern "C" {
 #define ESP_SPI_NAND_ERASE_REGION     0xDC
 #define ESP_SPI_NAND_READ_PAGE_DEBUG 0xDD
 #define ESP_SPI_NAND_WRITE_FLASH_END 0xDE
+// Key Manager commands (stub plugin only). Available on chips with the
+// Key Manager peripheral: ESP32-P4 >= v3.0 and ESP32-C5 (any revision).
+#define ESP_KM_KEY_DEPLOY_RANDOM 0xDF
+#define ESP_KM_KEY_DEPLOY_AES    0xE0
+#define ESP_KM_KEY_DEPLOY_ECDH0  0xE1
+#define ESP_KM_KEY_DEPLOY_ECDH1  0xE2
+#define ESP_KM_KEY_RECOVERY      0xE3
+#define ESP_KM_HUK_DEPLOY        0xE4
+#define ESP_KM_HUK_RECOVERY      0xE5
 
 /**
  * @brief ESP command response codes (16-bit)
@@ -68,6 +77,10 @@ enum esp_response_code {
     RESPONSE_TOO_MUCH_DATA       = 0xC900,
     RESPONSE_NAND_PROGRAM_FAILED = 0xCA00,
     RESPONSE_NAND_ERASE_FAILED   = 0xCB00,
+    /* Key Manager: AES / ECDH1 deploy was issued without a software
+     * init_key AND no key block in eFuse has KM_INIT_KEY (purpose 12)
+     * burned, so the chip has no init_key to decrypt k2_info with. */
+    RESPONSE_KM_INIT_KEY_NOT_BURNED = 0xCC00,
     RESPONSE_CMD_NOT_IMPLEMENTED = 0xFF00
 };
 
