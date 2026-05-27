@@ -5,7 +5,8 @@
  *
  * Generic NAND plugin linker script.
  *
- * The following values must be supplied via -Wl,--defsym by CMake:
+ * The following values are supplied by a generated fragment
+ * (<name>_plugin_addrs.ld) that CMake pulls in via -T before this script:
  *   PLUGIN_TEXT_ADDR          — IRAM load address (base text_end, 16-byte aligned)
  *   PLUGIN_BSS_ADDR           — DRAM load address (base data_end, 4-byte aligned)
  */

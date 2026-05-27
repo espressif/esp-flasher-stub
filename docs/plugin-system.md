@@ -86,32 +86,38 @@ After startup, plugin opcodes use the same command dispatcher and transport oper
 
 On Xtensa cores (ESP32-S2, ESP32-S3), IRAM only supports 32-bit stores. Writing non-4-byte-aligned data to IRAM causes a `LoadStoreError` exception (EXCCAUSE=3). `elf2json.py` automatically pads the plugin `.text` to a 4-byte boundary before embedding it in the JSON file.
 
-## Two-Pass Build
+## Build
 
-Because the plugin must be linked at fixed addresses that depend on the size of the base stub, the build uses two passes:
+A plugin must be linked at a fixed address immediately after the base stub (and after any earlier plugins), so its load address depends on the base stub's `.text`/`.data`/`.bss` sizes. Those sizes are only known once the base stub is linked, so the address is computed at **build time**, after the base stub:
 
 ```
-Pass 1: cmake/ninja → base stub ELF
+stub-<chip>.elf                          (base stub linked)
             │
             ▼
 tools/compute_plugin_addrs.py
-  Reads base stub ELF, extracts .text, .data, and .bss sizes,
-  computes <NAME>_PLUGIN_TEXT_ADDR and <NAME>_PLUGIN_BSS_ADDR
+  Reads the base ELF .text/.data/.bss sizes (plus any preceding
+  plugin ELFs passed via --after) and writes a linker fragment
+  <name>_plugin_addrs.ld:  PLUGIN_TEXT_ADDR / PLUGIN_BSS_ADDR
             │
             ▼
-Pass 2: cmake/ninja → plugin ELF (linked at computed addresses)
+stub-<chip>-<name>-plugin.elf
+  Linked with  -T <name>_plugin_addrs.ld  -T <name>_plugin.ld.
+  A LINK_DEPENDS on the fragment relinks the plugin whenever the
+  base stub's size changes.
             │
             ▼
 tools/elf2json.py
-  Converts base stub ELF to JSON, embeds plugin .text and
-  .bss metadata as an additional section in the JSON file
+  Converts the base stub ELF to JSON and embeds each plugin's
+  .text and .bss metadata under the "plugins" key.
 ```
+
+The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plugin_addrs.py` emits linker-script symbol assignments that the plugin linker script consumes in its `MEMORY` block. Multiple plugins **stack** — each plugin's fragment is computed from the base stub plus every preceding plugin ELF (`--after`).
 
 ### Key Tool Files
 
 | File | Purpose |
 |---|---|
-| `tools/compute_plugin_addrs.py` | Extracts base ELF sizes and computes one or more plugin load addresses |
+| `tools/compute_plugin_addrs.py` | Reads base (+ preceding plugin) ELF sizes and emits a `<name>_plugin_addrs.ld` fragment defining `PLUGIN_TEXT_ADDR`/`PLUGIN_BSS_ADDR` |
 | `tools/elf2json.py` | Converts ELF to JSON; embeds plugin `.text` and `.bss` size |
 | `src/plugin_table.h` | FPT ABI constants and `plugin_cmd_handler_t` typedef |
 | `src/command_handler.c` | Opcode dispatch to FPT |
@@ -164,7 +170,7 @@ int spi_ram_plugin_read(uint8_t command, const uint8_t *data,
 
 ### Step 3 — Create `src/ld/spi_ram_plugin.ld`
 
-Follow the pattern of `src/ld/nand_plugin.ld`. CMake supplies `PLUGIN_TEXT_ADDR` and `PLUGIN_BSS_ADDR` via `-Wl,--defsym`. Reuse `common.ld` for section layout; override the entry point and `EXTERN` every handler symbol:
+Follow the pattern of `src/ld/nand_plugin.ld`. `PLUGIN_TEXT_ADDR` and `PLUGIN_BSS_ADDR` come from the generated `<name>_plugin_addrs.ld` fragment (pulled in via `-T`). Reuse `common.ld` for section layout; override the entry point and `EXTERN` every handler symbol:
 
 ```ld
 MEMORY {
@@ -185,9 +191,9 @@ ASSERT(SIZEOF(.data) == 0, "Plugin must not have initialized .data — use BSS i
 
 Implement target-specific functions (e.g., `src/target/esp32s3/src/spi_ram.c`) following the same pattern as `nand.c` and `spi_nand.c`.
 
-### Step 5 — Update `CMakeLists.txt`
+### Step 5 — Update `src/CMakeLists.txt`
 
-Add detection of the new HAL file (analogous to `_NAND_C`), then call `stub_add_plugin()` with the plugin sources and computed load-address variable names:
+Add detection of the new HAL file (analogous to `_NAND_C`), then call `stub_add_plugin()` with the plugin sources and linker script. The macro derives the target name, generates the `<name>_plugin_addrs.ld` fragment, wires the build-time dependencies, and stacks the plugin after any earlier ones — no addresses to specify by hand:
 
 ```cmake
 set(_SPI_RAM_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/spi_ram.c)
@@ -199,11 +205,11 @@ if(EXISTS "${_SPI_RAM_C}")
             spi_ram_plugin.c
             ${_SPI_RAM_C}
         LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/spi_ram_plugin.ld
-        TEXT_ADDR     SPI_RAM_PLUGIN_TEXT_ADDR
-        BSS_ADDR      SPI_RAM_PLUGIN_BSS_ADDR
     )
 endif()
 ```
+
+Plugins load in the order `stub_add_plugin()` is called: the first is placed right after the base stub and each subsequent plugin stacks after the previous one.
 
 ### Step 6 — Update `tools/elf2json.py`
 
