@@ -183,6 +183,13 @@ const struct stub_transport_ops *stub_transport_init(int transport)
         // Wait for 10ms to ensure ROM has sent response to last command
         stub_lib_delay_us(10 * 1000);
         stub_lib_uart_wait_idle(UART_NUM_0);
+        // See commit body for benchmark details about the experiments, that led to the values
+        // of timeout and FIFO threshold.
+        // Timeout values above 10 did not measurably improve throughput.
+        stub_lib_uart_set_rx_timeout(UART_NUM_0, 10);
+        // 32-byte threshold is a reasonable balance between latency and IRQ rate.
+        // Larger FIFO thresholds had no measurable impact in benchmarks.
+        stub_lib_uart_set_rxfifo_full_threshold(UART_NUM_0, 32);
         stub_lib_uart_rominit_intr_attach(UART_NUM_0, UART_INTERRUPT_SOURCE,
                                           uart_rx_interrupt_handler,
                                           UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
