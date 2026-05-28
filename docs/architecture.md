@@ -91,11 +91,11 @@ The stub supports runtime-loadable plugins that extend the command set. Plugins 
 
 Command handlers and plugin post-process callbacks receive a `struct cmd_ctx` that includes the selected transport operations. Streaming code should send data and poll ACKs through `ctx->transport`, so plugin code stays independent of whether the host is using SLIP-based UART/USB or raw SDIO.
 
-For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the build uses a **two-pass** process:
+For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
 
-1. Build the base stub ELF (Pass 1).
-2. `tools/compute_plugin_addrs.py` computes plugin load addresses from the base ELF sizes.
-3. Build the plugin ELF linked at those addresses (Pass 2).
+1. Build the base stub ELF.
+2. `tools/compute_plugin_addrs.py` reads the base ELF sizes and emits a linker fragment with the plugin load addresses.
+3. Build the plugin ELF, which pulls in that fragment via `-T` and relinks automatically whenever the base stub changes.
 4. `tools/elf2json.py` embeds the plugin into the JSON stub file.
 
 For the full guide including how to add a new plugin, see [Plugin System](plugin-system.md).

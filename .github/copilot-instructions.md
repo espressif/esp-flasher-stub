@@ -122,9 +122,7 @@ source ./tools/export_toolchains.sh
 **Build Time**: ~10-15 seconds for all 14 chips (note: cmake defines 15 total targets, but build script excludes esp32h21)
 **Output**: Creates `build-{chip}/` directories for each chip with ELF and JSON files
 
-This script uses a **two-pass build** process:
-1. **Pass 1 (all chips)**: Configures CMake with `--fresh`, builds base stub ELF
-2. **Pass 2 (non-ESP8266, non-ESP32)**: Re-configures CMake so `compute_plugin_addrs.py` generates `plugin_addrs.cmake` from the base ELF, then builds the plugin ELF and regenerates JSON
+This script builds each chip with `cmake --fresh` followed by `ninja`. For plugin-capable chips (all except esp8266/esp32), CMake also computes the plugin load addresses from the base stub, links the plugin, and embeds it in the JSON.
 
 ## Pre-commit Hooks and Validation
 
@@ -253,7 +251,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - `export_toolchains.sh` - Adds toolchains to PATH (must be sourced)
 - `elf2json.py` - Converts ELF binaries to JSON format for esptool
 - `compare_sizes.py` - Compares stub segment sizes between two builds; used by CI to post size reports on PRs
-- `compute_plugin_addrs.py` - Computes plugin load addresses from base stub ELF (used in two-pass build)
+- `compute_plugin_addrs.py` - Emits a linker fragment with plugin load addresses computed from the base stub ELF
 - `install_all_chips.sh` - Copies built JSON files to esptool directory (requires ESPTOOL_STUBS_DIR env var)
 
 **`esp-stub-lib/`** (submodule)
@@ -287,7 +285,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - **CMake target configuration**: `cmake/esp-targets.cmake` determines toolchain and compiler flags based on TARGET_CHIP
 - **Linker scripts**: Each chip has a specific linker script in `src/ld/{chip}.ld`
 - **Post-build processing**: `tools/elf2json.py` requires pyelftools; called automatically after build
-- **Two-pass plugin build**: Chips with plugin support (all except esp8266 and esp32) use a two-pass build: Pass 1 builds the base stub ELF, Pass 2 computes plugin addresses and builds the plugin ELF
+- **Plugin build**: Chips with plugin support (all except esp8266 and esp32) build the base stub, compute plugin load addresses from it via a build-time custom command, link the plugin, and embed it in the JSON
 - **Chip support**: cmake defines 15 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp32s31, esp8266), but build_all_chips.sh only builds 14 (excludes esp32h21)
 
 ## Common Issues and Workarounds
