@@ -1,3 +1,19 @@
+## v0.8.0 (2026-05-28)
+
+### ✨ New Features
+
+- **uart**: Add RX FIFO threshold and timeout *(Vojtech Piroch - 6b6578f)*
+- add SDIO transport support *(Jaroslav Burian - dcd6558)*
+
+### 🐛 Bug Fixes
+
+- scope ESP8266 miniz data sections *(Jaroslav Burian - e175f64)*
+
+### 🔧 Code Refactoring
+
+- separate receive buffering from transports *(Jaroslav Burian - ece9980)*
+
+
 ## v0.7.0 (2026-05-04)
 
 ### ✨ New Features
