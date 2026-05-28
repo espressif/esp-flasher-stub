@@ -2,7 +2,7 @@
    of available RAM, to reduce change of colliding with anything
    else... */
 MEMORY {
-  iram : org = 0x4010C500, len = 0x3500
+  iram : org = 0x4010C500, len = 0x3600
   dram : org = 0x3FFE8100, len = 0x13f00
 }
 
