@@ -33,6 +33,15 @@ PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
         '0xDC': 'nand_plugin_erase_region',
         '0xDD': 'nand_plugin_read_page_debug',
     },
+    'keymanager': {
+        '0xDF': 'km_plugin_key_deploy_random',
+        '0xE0': 'km_plugin_key_deploy_aes',
+        '0xE1': 'km_plugin_key_deploy_ecdh0',
+        '0xE2': 'km_plugin_key_deploy_ecdh1',
+        '0xE3': 'km_plugin_key_recovery',
+        '0xE4': 'km_plugin_huk_deploy',
+        '0xE5': 'km_plugin_huk_recovery',
+    },
 }
 
 PLUGIN_FIRST_OPCODE = 0xD5
