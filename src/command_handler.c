@@ -398,8 +398,6 @@ static int s_flash_defl_begin(const struct cmd_ctx *ctx)
 
 static int s_flash_defl_data(const struct cmd_ctx *ctx)
 {
-#define ADLER32_CHECKSUM_SIZE 4
-
     if (ctx->packet_size < FLASH_DEFL_DATA_HEADER_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
     }
@@ -407,12 +405,6 @@ static int s_flash_defl_data(const struct cmd_ctx *ctx)
     int check = s_check_flash_in_progress();
     if (check != RESPONSE_SUCCESS) {
         return check;
-    }
-
-    // If all expected data has already been decompressed and written,
-    // only accept the checksum if it is part of the data.
-    if (s_flash_state.total_remaining == 0 && ctx->packet_size > ADLER32_CHECKSUM_SIZE) {
-        return RESPONSE_TOO_MUCH_DATA;
     }
 
     uint32_t data_size = get_le_to_u32(ctx->data);
@@ -429,7 +421,6 @@ static int s_flash_defl_data(const struct cmd_ctx *ctx)
     s_pending_post_process = s_flash_defl_data_post_process;
 
     return RESPONSE_SUCCESS;
-#undef ADLER32_CHECKSUM_SIZE
 }
 
 static int s_flash_defl_end(const struct cmd_ctx *ctx)
