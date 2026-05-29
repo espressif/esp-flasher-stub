@@ -1,3 +1,10 @@
+## v0.8.1 (2026-05-29)
+
+### 🐛 Bug Fixes
+
+- **flash**: remove faulty guard in flash_defl_data handler *(Jaroslav Burian - 4a31133)*
+
+
 ## v0.8.0 (2026-05-28)
 
 ### ✨ New Features
