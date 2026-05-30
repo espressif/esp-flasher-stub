@@ -15,6 +15,7 @@ This project aims to replace the legacy [flasher stub of esptool](https://github
 - [Development Guide](docs/development-guide.md) - Contributing guidelines, testing, CI/CD, and release process
 - [Plugin System](docs/plugin-system.md) - Runtime-loadable plugin architecture and guide for adding new plugins
 - [NAND Flash Support](docs/plugins/nand-flash.md) - NAND flash programming support (preview)
+- [SDMMC Card Support](docs/plugins/sdmmc.md) - SD/MMC card programming support (preview)
 
 ## Supported Chips
 

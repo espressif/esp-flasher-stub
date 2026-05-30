@@ -113,10 +113,32 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
 
     # ---- Discover which plugins apply to this chip --------------------------
 
-    set(_NAND_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/nand.c)
+    set(_NAND_C  ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/nand.c)
+    set(_SDMMC_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/sdmmc.c)
 
     if(NOT EXISTS "${_NAND_C}")
         message(STATUS "No NAND support for ${TARGET_CHIP}, skipping NAND plugin build.")
+    endif()
+    if(NOT EXISTS "${_SDMMC_C}")
+        message(STATUS "No SDMMC support for ${TARGET_CHIP}, skipping SDMMC plugin build.")
+    endif()
+
+    # ---- Build --plugin/--reserve args for compute_plugin_addrs.py ----------
+    # Reserve sizes are upper bounds used on the first build pass (before any
+    # plugin ELF exists).  Once a plugin's ELF is present compute_plugin_addrs.py
+    # reads its actual size instead of using the reserve.  Keep the reserve a
+    # comfortable multiple of the current footprint to avoid address churn
+    # between builds when one plugin grows.
+    set(_addr_args "")
+    if(EXISTS "${_NAND_C}")
+        list(APPEND _addr_args
+            --plugin nand ${CMAKE_BINARY_DIR}/src/stub-${TARGET_CHIP}-nand-plugin${CMAKE_EXECUTABLE_SUFFIX_C}
+            --reserve nand 0x4000 0x2000)
+    endif()
+    if(EXISTS "${_SDMMC_C}")
+        list(APPEND _addr_args
+            --plugin sdmmc ${CMAKE_BINARY_DIR}/src/stub-${TARGET_CHIP}-sdmmc-plugin${CMAKE_EXECUTABLE_SUFFIX_C}
+            --reserve sdmmc 0x4000 0x2000)
     endif()
 
     # ---- Compute plugin addresses (requires base ELF to exist) --------------
@@ -126,6 +148,7 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
             COMMAND ${CMAKE_SOURCE_DIR}/tools/compute_plugin_addrs.py
                     ${BASE_ELF}
                     ${PLUGIN_ADDRS_FILE}
+                    ${_addr_args}
             RESULT_VARIABLE _ret
         )
         if(NOT _ret EQUAL 0)
@@ -150,6 +173,21 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
                 LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/nand_plugin.ld
                 TEXT_ADDR     NAND_PLUGIN_TEXT_ADDR
                 BSS_ADDR      NAND_PLUGIN_BSS_ADDR
+            )
+        endif()
+
+        if(EXISTS "${_SDMMC_C}")
+            stub_add_plugin(
+                NAME          sdmmc
+                SOURCES
+                    sdmmc_plugin.c
+                    ${_SDMMC_C}
+                    ${ESP_STUB_LIB_DIR}/src/md5.c
+                    ${ESP_STUB_LIB_DIR}/src/target/common/src/md5.c
+                    ${ESP_STUB_LIB_DIR}/src/rom_wrappers.c
+                LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/sdmmc_plugin.ld
+                TEXT_ADDR     SDMMC_PLUGIN_TEXT_ADDR
+                BSS_ADDR      SDMMC_PLUGIN_BSS_ADDR
             )
         endif()
 
