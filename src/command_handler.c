@@ -987,7 +987,9 @@ void handle_command(const uint8_t *buffer, size_t size, const struct stub_transp
     if (accumulated_result == RESPONSE_SUCCESS) {
         s_send_response(transport, command, RESPONSE_SUCCESS, &response);
     } else {
-        s_send_response(transport, command, accumulated_result, NULL);
+        // Pass &response so handlers can surface diagnostic detail in
+        // response.value on the error path (e.g. plugin-specific error codes).
+        s_send_response(transport, command, accumulated_result, &response);
         s_pending_post_process = NULL;
     }
 
