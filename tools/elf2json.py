@@ -33,6 +33,15 @@ PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
         '0xDC': 'nand_plugin_erase_region',
         '0xDD': 'nand_plugin_read_page_debug',
     },
+    'sdmmc': {
+        '0xDF': 'sdmmc_plugin_attach',
+        '0xE0': 'sdmmc_plugin_read_flash',
+        '0xE1': 'sdmmc_plugin_write_flash_begin',
+        '0xE2': 'sdmmc_plugin_write_flash_data',
+        '0xE3': 'sdmmc_plugin_write_flash_end',
+        '0xE4': 'sdmmc_plugin_erase_region',
+        '0xE5': 'sdmmc_plugin_get_info',
+    },
 }
 
 PLUGIN_FIRST_OPCODE = 0xD5
