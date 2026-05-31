@@ -49,6 +49,14 @@ extern "C" {
 #define ESP_SPI_NAND_ERASE_REGION     0xDC
 #define ESP_SPI_NAND_READ_PAGE_DEBUG 0xDD
 #define ESP_SPI_NAND_WRITE_FLASH_END 0xDE
+// SDMMC card commands (stub only)
+#define ESP_SDMMC_ATTACH             0xDF
+#define ESP_SDMMC_READ_FLASH         0xE0
+#define ESP_SDMMC_WRITE_FLASH_BEGIN  0xE1
+#define ESP_SDMMC_WRITE_FLASH_DATA   0xE2
+#define ESP_SDMMC_WRITE_FLASH_END    0xE3
+#define ESP_SDMMC_ERASE_REGION       0xE4
+#define ESP_SDMMC_GET_INFO           0xE5
 
 /**
  * @brief ESP command response codes (16-bit)
@@ -112,6 +120,21 @@ enum esp_response_code {
 #define SPI_NAND_READ_PAGE_DEBUG_SIZE 4
 /* reboot_flag (uint32_t LE) — mirrors FLASH_END_SIZE */
 #define SPI_NAND_WRITE_FLASH_END_SIZE 4
+// SDMMC command sizes
+/* 16-byte stub_target_sdmmc_attach_config_t (slot, width, freq_khz, cd, wp,
+ * clk, cmd, d0..d7). Slot=0xFF triggers IDF-default pin mapping. */
+#define SDMMC_ATTACH_SIZE             16
+/* offset, size, packet_size, max_inflight — same layout as ESP_READ_FLASH */
+#define SDMMC_READ_FLASH_SIZE         16
+/* offset, total_size, block_size, packet_size — same layout as ESP_FLASH_BEGIN */
+#define SDMMC_WRITE_FLASH_BEGIN_SIZE  16
+/* mirrors FLASH_DATA_HEADER_SIZE */
+#define SDMMC_WRITE_FLASH_DATA_HEADER_SIZE 16
+/* reboot_flag */
+#define SDMMC_WRITE_FLASH_END_SIZE    4
+/* start_offset, length (both byte units) */
+#define SDMMC_ERASE_REGION_SIZE       8
+#define SDMMC_GET_INFO_SIZE           0
 
 #ifdef __cplusplus
 }
