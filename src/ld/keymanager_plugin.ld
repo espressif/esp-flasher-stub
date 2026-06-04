@@ -9,9 +9,6 @@
  *   PLUGIN_TEXT_ADDR             — IRAM load address (16-byte aligned)
  *   PLUGIN_BSS_ADDR              — DRAM load address (4-byte aligned)
  *   BASE_SLIP_SEND_FRAME         — address of slip_send_frame in base stub
- *   BASE_SLIP_RECV_RESET         — address of slip_recv_reset in base stub
- *   BASE_SLIP_IS_FRAME_COMPLETE  — address of slip_is_frame_complete in base stub
- *   BASE_SLIP_GET_FRAME_DATA     — address of slip_get_frame_data in base stub
  */
 
 MEMORY {
@@ -20,20 +17,31 @@ MEMORY {
 }
 
 /*
- * Forward SLIP calls to the base stub's implementations. The plugin
- * post_process streams the 552-byte key_recovery_info via slip_send_frame;
- * the recv-side helpers are unused today but kept symmetrical with NAND
- * for the eventual streaming-input handlers (e.g. large key_info on
- * recovery from flash).
+ * Forward SLIP calls to the base stub's implementation. The plugin's
+ * post_process streams its output frames (huk_info / key_info / k2*G) via
+ * slip_send_frame; it receives its input through the command dispatcher's
+ * (data, len) arguments, so no recv-side helpers are needed. (The earlier
+ * slip_recv_reset / slip_is_frame_complete / slip_get_frame_data helpers
+ * were removed when the transport layer's receive path was refactored.)
  */
 PROVIDE(slip_send_frame         = BASE_SLIP_SEND_FRAME);
-PROVIDE(slip_recv_reset         = BASE_SLIP_RECV_RESET);
-PROVIDE(slip_is_frame_complete  = BASE_SLIP_IS_FRAME_COMPLETE);
-PROVIDE(slip_get_frame_data     = BASE_SLIP_GET_FRAME_DATA);
 
 INCLUDE common.ld
 
 /* Override common.ld's ENTRY(esp_main) — the plugin has no esp_main. */
 ENTRY(km_plugin_key_deploy_random)
+
+/* The base stub calls these handlers through the plugin function table, not
+ * from within the plugin, so they are unreachable from ENTRY. Without these
+ * EXTERN declarations --gc-sections would drop every handler but the entry,
+ * and elf2json.py would fail to resolve their addresses. Must stay in sync
+ * with PLUGIN_HANDLER_SYMBOLS in tools/elf2json.py. */
+EXTERN(km_plugin_key_deploy_random);
+EXTERN(km_plugin_key_deploy_aes);
+EXTERN(km_plugin_key_deploy_ecdh0);
+EXTERN(km_plugin_key_deploy_ecdh1);
+EXTERN(km_plugin_key_recovery);
+EXTERN(km_plugin_huk_deploy);
+EXTERN(km_plugin_huk_recovery);
 
 ASSERT(SIZEOF(.data) == 0, "Plugin must not have initialized .data — use BSS instead")
