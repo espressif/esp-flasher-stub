@@ -4,7 +4,7 @@
 
 **esp-flasher-stub** is an embedded firmware project that builds flasher stub binaries for Espressif ESP chips. These stubs are small firmware programs that run on ESP devices to facilitate flash programming via esptool.
 
-**Project Status**: Experimental - not yet ready for production use. This project aims to replace the [legacy flasher stub in esptool](https://github.com/espressif/esptool-legacy-flasher-stub/) with a modern, maintainable implementation using CMake and the esp-stub-lib library.
+**Project Status**: Production-ready (since v1.0.0). This project has replaced the deprecated [legacy flasher stub in esptool](https://github.com/espressif/esptool-legacy-flasher-stub/) with a modern, maintainable implementation using CMake and the esp-stub-lib library.
 
 **Documentation**: The project maintains developer-facing documentation in the `docs/` directory:
 - `docs/architecture.md` - Firmware architecture, source code structure, modules, and build system internals
