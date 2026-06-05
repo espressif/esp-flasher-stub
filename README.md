@@ -4,10 +4,7 @@
 
 ESP Flasher Stub is a set of small firmware programs (stubs) that run on Espressif ESP chips to enable fast and reliable flash programming via [esptool](https://github.com/espressif/esptool/). When esptool connects to an ESP chip, it uploads the flasher stub into the chip's RAM. The stub then takes over communication, providing faster flash operations and additional features compared to the chip's built-in ROM bootloader.
 
-This project aims to replace the legacy [flasher stub of esptool](https://github.com/espressif/esptool-legacy-flasher-stub/) in the near future.
-
-> [!IMPORTANT]
-> This project is experimental and not yet ready for production use.
+This project has replaced the deprecated [legacy flasher stub of esptool](https://github.com/espressif/esptool-legacy-flasher-stub/) and is the default flasher stub since esptool [v5.3](https://github.com/espressif/esptool/releases/tag/v5.3.0).
 
 ## Documentation
 
