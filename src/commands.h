@@ -81,6 +81,10 @@ enum esp_response_code {
      * init_key AND no key block in eFuse has KM_INIT_KEY (purpose 12)
      * burned, so the chip has no init_key to decrypt k2_info with. */
     RESPONSE_KM_INIT_KEY_NOT_BURNED = 0xCC00,
+    /* Key Manager: this chip/revision does not support the 660-byte HUK
+     * flow. ESP32-P4 only supports it from v3.0 (ROM ECO >= 5); earlier P4
+     * silicon used a 384-byte HUK and is rejected. */
+    RESPONSE_KM_UNSUPPORTED_CHIP = 0xCC01,
     RESPONSE_CMD_NOT_IMPLEMENTED = 0xFF00
 };
 

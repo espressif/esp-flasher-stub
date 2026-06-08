@@ -305,6 +305,10 @@ static int km_run_deploy(stub_km_keygen_mode_t mode,
                          km_load_cb_t load_cb, km_gain_cb_t gain_cb,
                          uint8_t pending_kind)
 {
+    if (!stub_target_km_is_supported()) {
+        return RESPONSE_KM_UNSUPPORTED_CHIP;
+    }
+
     stub_km_key_type_t key_type = (stub_km_key_type_t)hdr->key_type;
     stub_km_key_len_t  key_len  = (stub_km_key_len_t)hdr->key_len;
 
@@ -684,6 +688,9 @@ int km_plugin_huk_deploy(uint8_t command, const uint8_t *data,
     if (len != 0U) {
         return RESPONSE_BAD_DATA_LEN;
     }
+    if (!stub_target_km_is_supported()) {
+        return RESPONSE_KM_UNSUPPORTED_CHIP;
+    }
 
     /* Bring up KM peripheral first — same as huk-recovery / key-deploy. The
      * HUK Generator has its own power-up that succeeds without this, but
@@ -729,6 +736,9 @@ int km_plugin_huk_recovery(uint8_t command, const uint8_t *data,
     (void)command;
     if (len != STUB_KM_HUK_INFO_WIRE_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
+    }
+    if (!stub_target_km_is_supported()) {
+        return RESPONSE_KM_UNSUPPORTED_CHIP;
     }
 
     uint32_t expected_crc = esp_rom_crc32_le(0U, data, STUB_KM_HUK_INFO_SIZE);
