@@ -95,18 +95,27 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
             ${ESP_STUB_LIB_DIR}/src/target/base/include
         )
 
-        # Collect ROM LD scripts for this chip (symbol resolution only). The
-        # base script is fed FIRST and the ECO-revision scripts LAST: when a
-        # symbol moved between silicon revisions both scripts assign it, and ld
-        # keeps the last assignment. esptool only drives the Key Manager on the
-        # newer silicon (ESP32-P4 >= v3.0 = ROM ECO >= 5), whose addresses live
-        # in the *.rom.eco*.ld scripts — e.g. esp_rom_km_huk_conf is 0x4fc00718
-        # on P4 ECO0-4 but 0x4fc0070c on ECO>=5. Letting the base script win
-        # (the previous single sorted glob) baked the ECO0-4 address into the
-        # plugin and crashed huk-deploy on v3.0+ parts.
+        # Collect ROM LD scripts for this chip (symbol resolution only).
+        #
+        # The Key Manager is only supported on the newer silicon — ESP32-P4
+        # >= v3.0 (ROM ECO >= 5), the revision with the 660-byte HUK_INFO that
+        # this plugin and esptool target. On that silicon esp_rom_km_huk_conf is
+        # at 0x4fc0070c, vs 0x4fc00718 on P4 ECO0-4. esp-stub-lib ships the
+        # ECO>=5 interface as *.rom.eco*.ld and the older ECO0-4 interface as
+        # the plain *.rom.ld. So when an ECO interface exists, link ONLY the ECO
+        # scripts (these, plus the shared *.rom.{api,extra,libc,libgcc}.ld, are
+        # all matched by *.rom.*.ld) and drop the older base interface entirely.
+        # The plugin is then built exclusively for the revisions we support, and
+        # never links a stale ECO0-4 address. Chips without an ECO variant (e.g.
+        # ESP32-C5) have only the base interface, so they use that.
         file(GLOB _rom_ld_base "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.ld")
-        file(GLOB _rom_ld_eco "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.*.ld")
-        set(_rom_ld_scripts ${_rom_ld_base} ${_rom_ld_eco})
+        file(GLOB _rom_ld_rest "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.*.ld")
+        file(GLOB _rom_ld_eco_iface "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.eco*.ld")
+        if(_rom_ld_eco_iface)
+            set(_rom_ld_scripts ${_rom_ld_rest})
+        else()
+            set(_rom_ld_scripts ${_rom_ld_base} ${_rom_ld_rest})
+        endif()
         set(_rom_ld_flags "")
         foreach(_s ${_rom_ld_scripts})
             list(APPEND _rom_ld_flags "-T${_s}")
