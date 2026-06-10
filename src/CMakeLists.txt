@@ -79,6 +79,14 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         )
         add_dependencies(${_plugin_target} ${TARGET_NAME})
 
+        # -fno-jump-tables: the plugin linker script forbids any .rodata /
+        # .data section, but GCC at -Os will emit jump tables for switches
+        # of >=4 cases (and lookup tables for some if/else chains) into
+        # .rodata. Forcing GCC to inline the comparisons avoids that
+        # without making us hand-fold every multi-case dispatch into a
+        # nested if-tree.
+        target_compile_options(${_plugin_target} PRIVATE -fno-jump-tables)
+
         target_include_directories(${_plugin_target} PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
             ${ESP_STUB_LIB_DIR}/include
@@ -87,11 +95,27 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
             ${ESP_STUB_LIB_DIR}/src/target/base/include
         )
 
-        # Collect all ROM LD scripts for this chip (symbol resolution only)
-        file(GLOB _rom_ld_scripts
-            "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.ld"
-            "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.*.ld"
-        )
+        # Collect ROM LD scripts for this chip (symbol resolution only).
+        #
+        # The Key Manager is only supported on the newer silicon — ESP32-P4
+        # >= v3.0 (ROM ECO >= 5), the revision with the 660-byte HUK_INFO that
+        # this plugin and esptool target. On that silicon esp_rom_km_huk_conf is
+        # at 0x4fc0070c, vs 0x4fc00718 on P4 ECO0-4. esp-stub-lib ships the
+        # ECO>=5 interface as *.rom.eco*.ld and the older ECO0-4 interface as
+        # the plain *.rom.ld. So when an ECO interface exists, link ONLY the ECO
+        # scripts (these, plus the shared *.rom.{api,extra,libc,libgcc}.ld, are
+        # all matched by *.rom.*.ld) and drop the older base interface entirely.
+        # The plugin is then built exclusively for the revisions we support, and
+        # never links a stale ECO0-4 address. Chips without an ECO variant (e.g.
+        # ESP32-C5) have only the base interface, so they use that.
+        file(GLOB _rom_ld_base "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.ld")
+        file(GLOB _rom_ld_rest "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.*.ld")
+        file(GLOB _rom_ld_eco_iface "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.eco*.ld")
+        if(_rom_ld_eco_iface)
+            set(_rom_ld_scripts ${_rom_ld_rest})
+        else()
+            set(_rom_ld_scripts ${_rom_ld_base} ${_rom_ld_rest})
+        endif()
         set(_rom_ld_flags "")
         foreach(_s ${_rom_ld_scripts})
             list(APPEND _rom_ld_flags "-T${_s}")
@@ -102,6 +126,7 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
             "-T${_PA_LINKER_SCRIPT}"
             -Wl,--defsym,PLUGIN_TEXT_ADDR=${${_PA_TEXT_ADDR}}
             -Wl,--defsym,PLUGIN_BSS_ADDR=${${_PA_BSS_ADDR}}
+            ${STUB_BASE_DEFSYMS}
             -Wl,-Map=${CMAKE_BINARY_DIR}/${_plugin_target}.map
             ${_rom_ld_flags}
         )
@@ -114,18 +139,53 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
     # ---- Discover which plugins apply to this chip --------------------------
 
     set(_NAND_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/nand.c)
+    set(_KEY_MGR_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/key_mgr.c)
+
+    # Key Manager peripheral availability is chip-defined (not HAL-file gated)
+    # so the plugin builds even before the HAL source lands in esp-stub-lib.
+    # Set _BUILD_KM_PLUGIN to TRUE on chips that ship a Key Manager peripheral
+    # in revisions esptool supports (P4 >= v3.0, C5 any rev).
+    set(_BUILD_KM_PLUGIN FALSE)
+    if(TARGET_CHIP STREQUAL "esp32p4" OR TARGET_CHIP STREQUAL "esp32c5")
+        set(_BUILD_KM_PLUGIN TRUE)
+    endif()
 
     if(NOT EXISTS "${_NAND_C}")
         message(STATUS "No NAND support for ${TARGET_CHIP}, skipping NAND plugin build.")
     endif()
+    if(NOT _BUILD_KM_PLUGIN)
+        message(STATUS "No Key Manager support for ${TARGET_CHIP}, skipping Key Manager plugin build.")
+    endif()
 
     # ---- Compute plugin addresses (requires base ELF to exist) --------------
+    #
+    # Pass --plugin <name> <elf> for every plugin we plan to build, so
+    # compute_plugin_addrs.py allocates non-overlapping IRAM/DRAM regions for
+    # each. ELFs may not exist on the first cmake pass; --reserve seeds
+    # provisional sizes so later plugins don't overlap on the first run.
+
+    set(_PLUGIN_ADDR_ARGS "")
+    if(EXISTS "${_NAND_C}")
+        list(APPEND _PLUGIN_ADDR_ARGS
+            --plugin nand
+                ${CMAKE_BINARY_DIR}/src/stub-${TARGET_CHIP}-nand-plugin${CMAKE_EXECUTABLE_SUFFIX_C}
+            --reserve nand 0x4000 0x4000
+        )
+    endif()
+    if(_BUILD_KM_PLUGIN)
+        list(APPEND _PLUGIN_ADDR_ARGS
+            --plugin keymanager
+                ${CMAKE_BINARY_DIR}/src/stub-${TARGET_CHIP}-keymanager-plugin${CMAKE_EXECUTABLE_SUFFIX_C}
+            --reserve keymanager 0x4000 0x1000
+        )
+    endif()
 
     if(EXISTS "${BASE_ELF}")
         execute_process(
             COMMAND ${CMAKE_SOURCE_DIR}/tools/compute_plugin_addrs.py
                     ${BASE_ELF}
                     ${PLUGIN_ADDRS_FILE}
+                    ${_PLUGIN_ADDR_ARGS}
             RESULT_VARIABLE _ret
         )
         if(NOT _ret EQUAL 0)
@@ -150,6 +210,24 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
                 LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/nand_plugin.ld
                 TEXT_ADDR     NAND_PLUGIN_TEXT_ADDR
                 BSS_ADDR      NAND_PLUGIN_BSS_ADDR
+            )
+        endif()
+
+        if(_BUILD_KM_PLUGIN)
+            # The Key Manager HAL source ${_KEY_MGR_C} is added to SOURCES only
+            # if it exists in esp-stub-lib (it lands there in a later milestone).
+            # Until then the plugin builds with stub handlers that don't touch
+            # KM hardware.
+            set(_KM_PLUGIN_SOURCES keymanager_plugin.c)
+            if(EXISTS "${_KEY_MGR_C}")
+                list(APPEND _KM_PLUGIN_SOURCES ${_KEY_MGR_C})
+            endif()
+            stub_add_plugin(
+                NAME          keymanager
+                SOURCES       ${_KM_PLUGIN_SOURCES}
+                LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/keymanager_plugin.ld
+                TEXT_ADDR     KEYMANAGER_PLUGIN_TEXT_ADDR
+                BSS_ADDR      KEYMANAGER_PLUGIN_BSS_ADDR
             )
         endif()
 
