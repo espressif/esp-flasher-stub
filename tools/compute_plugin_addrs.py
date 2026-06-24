@@ -2,12 +2,21 @@
 # SPDX-FileCopyrightText: 2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0 OR MIT
 """
-Compute plugin load addresses and base stub symbol addresses from a built
-base stub ELF.  Writes a CMake-includable file with the results.
+Compute a plugin's load addresses from the base stub ELF and emit a linker
+script fragment defining PLUGIN_TEXT_ADDR and PLUGIN_BSS_ADDR.
 
-Supports multiple plugins via repeated --plugin NAME ELF arguments.  Each
-plugin is stacked after the previous one; the first plugin starts immediately
-after the base stub.
+A plugin is loaded immediately after the base stub.  Multiple plugins stack:
+pass each preceding plugin's ELF via --after, in load order, so this plugin is
+placed after them.
+
+    # First plugin: right after the base stub
+    compute_plugin_addrs.py base.elf nand_plugin_addrs.ld
+
+    # Second plugin: stacked after the first
+    compute_plugin_addrs.py base.elf spi_ram_plugin_addrs.ld --after nand_plugin.elf
+
+The generated fragment is pulled in by the plugin's linker script via -T and
+supplies the MEMORY origins, replacing the old configure-time -Wl,--defsym.
 """
 
 import argparse
@@ -23,131 +32,65 @@ def align_up(value, alignment):
     return (value + alignment - 1) & ~(alignment - 1)
 
 
+def _section_end(elf, name, path):
+    sec = elf.get_section_by_name(name)
+    if sec is None:
+        sys.exit(f'ERROR: {name} section not found in base stub ELF {path}')
+    return sec['sh_addr'] + sec['sh_size']
+
+
+def _section_size(elf, name):
+    sec = elf.get_section_by_name(name)
+    return sec['sh_size'] if sec is not None else 0
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Compute plugin load addresses from a base stub ELF.')
-    parser.add_argument(
-        'base_stub_elf',
-        help='Path to the base stub ELF file',
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument('base_stub_elf', help='Path to the base stub ELF file')
+    parser.add_argument('output_ld', help='Path to the linker fragment to write')
     parser.add_argument(
-        'output_cmake',
-        help='Path to the output CMake file',
-    )
-    parser.add_argument(
-        '--plugin',
-        nargs=2,
-        metavar=('NAME', 'PLUGIN_ELF'),
+        '--after',
         action='append',
         default=[],
-        help='Plugin to allocate addresses for: --plugin <name> <plugin_elf>. '
-        'May be repeated; plugins are stacked in order.',
-    )
-    parser.add_argument(
-        '--reserve',
-        nargs=3,
-        metavar=('NAME', 'TEXT_SIZE', 'BSS_SIZE'),
-        action='append',
-        default=[],
-        help='Fallback reservation sizes (hex or decimal) for a plugin whose ELF is not yet built: '
-        '--reserve <name> <text_size> <bss_size>. May be repeated.',
+        metavar='PLUGIN_ELF',
+        help='ELF of a plugin loaded before this one; repeat in load order to stack.',
     )
     args = parser.parse_args()
 
-    # Parse --reserve entries into a dict keyed by lower-case plugin name
-    reserves = {}
-    for res_name, res_text, res_bss in args.reserve:
-        try:
-            reserves[res_name.lower()] = (int(res_text, 0), int(res_bss, 0))
-        except ValueError:
-            sys.exit(f'ERROR: --reserve {res_name}: TEXT_SIZE and BSS_SIZE must be integers (hex or decimal)')
-
     with open(args.base_stub_elf, 'rb') as f:
         elf = ELFFile(f)
+        text_end = _section_end(elf, '.text', args.base_stub_elf)
+        data_end = _section_end(elf, '.data', args.base_stub_elf)
+        bss_end = _section_end(elf, '.bss', args.base_stub_elf)
 
-        text_sec = elf.get_section_by_name('.text')
-        data_sec = elf.get_section_by_name('.data')
-        bss_sec = elf.get_section_by_name('.bss')
+    # First plugin slot starts immediately after the base stub.  Place plugin
+    # BSS after both .data and .bss to avoid overlap.
+    text_addr = align_up(text_end, 16)
+    bss_addr = align_up(max(data_end, bss_end), 4)
 
-        if text_sec is None:
-            sys.exit('ERROR: .text section not found in base stub ELF')
-        if data_sec is None:
-            sys.exit('ERROR: .data section not found in base stub ELF')
-        if bss_sec is None:
-            sys.exit('ERROR: .bss section not found in base stub ELF')
+    # Stack past each preceding plugin, in load order.
+    for plugin_elf in args.after:
+        try:
+            with open(plugin_elf, 'rb') as pf:
+                p_elf = ELFFile(pf)
+                p_text_size = _section_size(p_elf, '.text')
+                p_bss_size = _section_size(p_elf, '.bss')
+        except FileNotFoundError:
+            sys.exit(f"ERROR: preceding plugin ELF not found: '{plugin_elf}'")
+        text_addr = align_up(text_addr + p_text_size, 16)
+        bss_addr = align_up(bss_addr + p_bss_size, 4)
 
-        text_end = text_sec['sh_addr'] + text_sec['sh_size']
-        data_end = data_sec['sh_addr'] + data_sec['sh_size']
-        bss_end = bss_sec['sh_addr'] + bss_sec['sh_size']
+    with open(args.output_ld, 'w') as out:
+        out.write('/* Auto-generated by compute_plugin_addrs.py — do not edit */\n')
+        out.write(f'PLUGIN_TEXT_ADDR = 0x{text_addr:08X};\n')
+        out.write(f'PLUGIN_BSS_ADDR  = 0x{bss_addr:08X};\n')
 
-        # First plugin starts immediately after the base stub
-        next_text_addr = align_up(text_end, 16)
-        # Place plugin BSS after both .data and .bss to avoid overlap
-        next_bss_addr = align_up(max(data_end, bss_end), 4)
-
-    lines = []
-
-    # Allocate addresses sequentially for each requested plugin.
-    # If no --plugin arguments are given (legacy/first-pass invocation), fall
-    # back to computing NAND addresses under the old variable names so that
-    # existing CMakeLists.txt that includes this file without --plugin still works.
-    if not args.plugin:
-        lines.insert(0, f'set(NAND_PLUGIN_BSS_ADDR  0x{next_bss_addr:08X})')
-        lines.insert(0, f'set(NAND_PLUGIN_TEXT_ADDR 0x{next_text_addr:08X})')
-    else:
-        for plugin_name, plugin_elf in args.plugin:
-            name_upper = plugin_name.upper()
-            lines.append(f'set({name_upper}_PLUGIN_TEXT_ADDR 0x{next_text_addr:08X})')
-            lines.append(f'set({name_upper}_PLUGIN_BSS_ADDR  0x{next_bss_addr:08X})')
-
-            # Advance pointers past this plugin's sections
-            try:
-                with open(plugin_elf, 'rb') as pf:
-                    p_elf = ELFFile(pf)
-                    p_text_sec = p_elf.get_section_by_name('.text')
-                    p_bss_sec = p_elf.get_section_by_name('.bss')
-                    p_text_size = p_text_sec['sh_size'] if p_text_sec else 0
-                    p_bss_size = p_bss_sec['sh_size'] if p_bss_sec else 0
-            except FileNotFoundError:
-                # Plugin ELF not built yet.  Check for an explicit --reserve entry.
-                reserve = reserves.get(plugin_name.lower())
-                if reserve is not None:
-                    p_text_size, p_bss_size = reserve
-                    print(
-                        f"WARNING: plugin ELF '{plugin_elf}' not found; "
-                        f'using reserved sizes TEXT=0x{p_text_size:X} BSS=0x{p_bss_size:X} for {plugin_name!r}.',
-                        file=sys.stderr,
-                    )
-                else:
-                    # No reserve provided.  If there are subsequent plugins their
-                    # addresses would overlap — fail fast with an actionable message.
-                    remaining = args.plugin[args.plugin.index([plugin_name, plugin_elf]) + 1 :]
-                    if remaining:
-                        sys.exit(
-                            f"ERROR: plugin ELF '{plugin_elf}' not found and no --reserve entry for {plugin_name!r}. "
-                            f'Subsequent plugins {[n for n, _ in remaining]} would receive overlapping addresses. '
-                            f'Build {plugin_name!r} first, or pass --reserve {plugin_name} <text_size> <bss_size>.'
-                        )
-                    # Single (last) plugin missing — harmless, emit warning only.
-                    print(
-                        f"WARNING: plugin ELF '{plugin_elf}' not found; "
-                        f'subsequent plugin addresses may be incorrect (first-pass build?)',
-                        file=sys.stderr,
-                    )
-                    p_text_size = 0
-                    p_bss_size = 0
-
-            # Align text to 16 bytes (same rule as base→first-plugin gap)
-            next_text_addr = align_up(next_text_addr + p_text_size, 16)
-            next_bss_addr = align_up(next_bss_addr + p_bss_size, 4)
-
-    with open(args.output_cmake, 'w') as out:
-        out.write('# Auto-generated by compute_plugin_addrs.py — do not edit\n')
-        for line in lines:
-            out.write(line + '\n')
-
-    print(f'Plugin addresses written to {args.output_cmake}')
-    for line in lines:
-        print(f'  {line}')
+    print(f'Plugin load addresses written to {args.output_ld}')
+    print(f'  PLUGIN_TEXT_ADDR = 0x{text_addr:08X}')
+    print(f'  PLUGIN_BSS_ADDR  = 0x{bss_addr:08X}')
 
 
 if __name__ == '__main__':

@@ -134,5 +134,5 @@ Create a pull request and edit the automatically created draft release on the [r
 | `tools/export_toolchains.sh` | Add toolchain directories to `PATH` (must be sourced) |
 | `tools/elf2json.py` | Convert ELF binary to JSON format for esptool; embeds plugin data when `--plugin` is specified |
 | `tools/compare_sizes.py` | Compare stub segment sizes between two builds; used by CI to post size reports on PRs |
-| `tools/compute_plugin_addrs.py` | Compute plugin load addresses from base stub ELF (used in two-pass build) |
+| `tools/compute_plugin_addrs.py` | Emit a linker fragment with plugin load addresses computed from the base stub ELF |
 | `tools/install_all_chips.sh` | Copy built JSON files into an esptool installation |
