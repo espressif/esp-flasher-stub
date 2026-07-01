@@ -6,6 +6,14 @@ add_executable(${TARGET_NAME}
     "transport.c"
 )
 
+# The UART clock/APB boost is verified safe only on ESP32 (its stub_target_clock_init sets DBIAS;
+# the ESP32-S3 UART path is unstable without it). Define ESP32 (same style as the existing ESP8266
+# chip macro) so main.c enables the boost for UART on esp32 only; other targets keep upstream
+# USB-only clock behaviour. The conditional erase and larger flash block are chip-independent.
+if(TARGET_CHIP STREQUAL "esp32")
+    target_compile_definitions(${TARGET_NAME} PRIVATE ESP32)
+endif()
+
 target_link_options(${TARGET_NAME} PRIVATE
     -L${LINKER_SCRIPTS_DIR}
     "-T${CHIP_LINKER_SCRIPT}"

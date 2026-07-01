@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <esp-stub-lib/flash.h>
 #include <esp-stub-lib/clock.h>
+#include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/usb_otg.h>
 #include "command_handler.h"
 #include "transport.h"
@@ -36,11 +37,25 @@ void esp_main(void)
     const int transport = stub_transport_detect();
 
     // stub_lib_clock_init() increases CPU frequency which benefits both USB and UART transfers.
-    // Currently only enabled for USB transfers due to concerns about instability (observed on ESP32-S3),
-    // because DBIAS voltage not being set. This needs investigation and potentially enabling for all transport types.
-    if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG || transport == TRANSPORT_SDIO) {
+    // Upstream enables it only for USB transports: the ESP32-S3 UART path was unstable because
+    // DBIAS was not set. ESP32's stub_target_clock_init() DOES set DBIAS (RTC_CNTL_DBIAS_1V25),
+    // so enabling the boost for UART is verified safe ON ESP32 ONLY. ESP32 is defined
+    // by the build only for TARGET_CHIP=esp32; every other target keeps the upstream USB-only gate.
+#ifdef ESP32
+    stub_lib_clock_init();
+
+    // The boost raises APB to 80 MHz, changing the ROM-set UART baud divider. Reprogram it for the
+    // current ROM link baud (115200) right after the boost, else the OHAI/handshake is corrupted;
+    // esptool then issues its own CHANGE_BAUDRATE (recomputed from the new 80 MHz APB).
+    if (transport == TRANSPORT_UART) {
+        stub_lib_uart_rominit_set_baudrate(UART_NUM_0, 115200);
+    }
+#else
+    if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG ||
+            transport == TRANSPORT_SDIO) {
         stub_lib_clock_init();
     }
+#endif
 
     stub_lib_flash_init(NULL);
     stub_lib_flash_attach(0, false);
