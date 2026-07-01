@@ -14,8 +14,16 @@
 extern "C" {
 #endif
 
-/* Maximum frame size: 8-byte SLIP header + esptool max data payload (WRITE_FLASH uses 0x4000+0xFF). */
-#define FRAME_BUFFER_SIZE (8U + 0x4000U + 0xFFU)
+/* Maximum frame size: 8-byte SLIP header + esptool max data payload + SLIP slack.
+ * Flash block enlarged to 32KB (fewer round-trips); run esptool with FLASH_WRITE_SIZE=0x8000
+ * to match. The double buffer must fit the stub's DRAM window (see the target linker script).
+ * Exception: esp8266's DRAM window is too small for a 2x32KB double buffer, so it stays at
+ * 16KB (FLASH_WRITE_SIZE=0x4000). ESP8266 is a build-time define (-DESP8266, see cmake). */
+#ifdef ESP8266
+#define FRAME_BUFFER_SIZE (8U + 0x4000U + 0xFFU)   /* 16KB: esp8266 DRAM too small for a 2x32KB double buffer */
+#else
+#define FRAME_BUFFER_SIZE (8U + 0x8000U + 0xFFU)   /* 32KB: fewer round-trips */
+#endif
 
 enum frame_buffer_state {
     FRAME_BUFFER_STATE_IDLE,
