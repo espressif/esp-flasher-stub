@@ -55,6 +55,58 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  generate_npm_package:
+    needs: build_stubs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full checkout to get tags
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Download stub JSONs
+        uses: actions/download-artifact@v8
+        with:
+          name: stub-jsons
+          path: stub-jsons
+
+      - name: Generate package version
+        id: get_version
+        shell: bash
+        # vX.Y.Z tag -> X.Y.Z
+        # vX.Y.Z-N-g<hash> describe -> X.Y.Z-N-g<hash>
+        # otherwise -> 0.0.0-<short-sha>
+        run: |
+          DESCRIBE=$(git describe --tags --always 2>/dev/null || true)
+          if [[ "$DESCRIBE" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?)$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+          else
+            COMMIT_ID=$(git rev-parse --short HEAD)
+            VERSION="0.0.0-${COMMIT_ID}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate npm package
+        run: |
+          node tools/generate_npm_package.mjs \
+            --version "${{ steps.get_version.outputs.VERSION }}" \
+            --stub-dir stub-jsons \
+            --out-dir npm-package
+          cd npm-package
+          npm pack
+
+      - name: Upload npm package
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-package
+          path: npm-package/*.tgz
+
   size_report:
     name: Stub Size Report
     needs: build_stubs
