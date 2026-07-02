@@ -61,8 +61,13 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
-      actions: write   # needed to trigger a master workflow_dispatch when artifacts have expired
-      pull-requests: write
+      # Fork PRs run with a read-only GITHUB_TOKEN, so this job does not post
+      # the comment itself: it uploads the report as an artifact, and the
+      # size_report_comment.yml (workflow_run) receiver posts it with a write
+      # token in base-repo context.  Only actions:write is still needed here,
+      # to download / trigger a master build for the comparison — this works
+      # for same-repo PRs and degrades gracefully to a PR-only report on forks.
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -189,11 +194,11 @@ jobs:
 
           echo "::notice::Could not obtain master artifacts; skipping comparison"
 
-      - name: Generate and post size report
+      - name: Generate size report
         env:
-          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          mkdir -p size-report
           if [ -d master-artifacts ]; then
             REPORT=$(python tools/compare_sizes.py \
               --master-dir master-artifacts \
@@ -203,24 +208,26 @@ jobs:
               --pr-dir pr-artifacts)
           fi
 
+          # First line is the marker used to find/update the comment later.
           MARKER='<!-- stub-size-report -->'
-          BODY="${MARKER}"$'\n'"${REPORT}"
+          {
+            printf '%s\n' "$MARKER"
+            printf '%s\n' "$REPORT"
+          } > size-report/report.md
 
-          # Find existing size-report comment (if any)
-          COMMENT_ID=$(gh api \
-            "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --paginate --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" \
-            | head -n1)
+          # Record the PR number for the workflow_run receiver: for fork PRs the
+          # workflow_run event payload does not carry the PR, so we pass it along
+          # here.  The receiver treats it as untrusted and validates it against
+          # the built commit before commenting.
+          printf '%s\n' "$PR_NUMBER" > size-report/pr-number
 
-          if [ -n "$COMMENT_ID" ]; then
-            gh api \
-              "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
-              --method PATCH --field body="$BODY"
-          else
-            gh pr comment "$PR_NUMBER" \
-              --repo "${{ github.repository }}" \
-              --body "$BODY"
-          fi
+      - name: Upload size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-report
+          path: size-report/
+          if-no-files-found: error
+          retention-days: 3
 
   create_release:
     name: Create GitHub release

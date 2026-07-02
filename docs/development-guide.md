@@ -102,7 +102,8 @@ Before submitting a pull request:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| Build and Release | Push, PR | Build firmware for all chips; post stub size report on PRs; create releases on tags |
+| Build and Release | Push, PR | Build firmware for all chips; generate the stub size report on PRs (uploaded as an artifact); create releases on tags |
+| Post stub size report | `workflow_run` after Build and Release | Post/update the size report comment on the PR (runs with a write token so it also works for fork PRs) |
 | Host Tests | Push | Run native unit tests |
 | DangerJS | PR | Validate PR style and conventions |
 | Jira | PR | Sync with Jira issue tracker |

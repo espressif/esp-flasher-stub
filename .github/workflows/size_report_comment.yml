@@ -1,0 +1,101 @@
+---
+name: Post stub size report
+
+# Fork pull_request runs get a read-only GITHUB_TOKEN and cannot post PR
+# comments, so "Build and release" only *builds* the size report and uploads
+# it as an artifact.  This workflow runs on workflow_run in the base-repo
+# context with a write token and posts the comment.
+#
+# Security: this workflow never checks out or executes any code from the PR
+# head — it only downloads the artifact (opaque data) produced by the build
+# and posts it.  The PR number carried in the artifact is treated as untrusted
+# and validated against the commit that was actually built before commenting.
+on:
+  workflow_run:
+    workflows: ["Build and release"]
+    types: [completed]
+
+permissions:
+  actions: read          # download the size-report artifact from the triggering run
+  pull-requests: write   # create/update the PR comment
+
+jobs:
+  comment:
+    name: Post size report comment
+    # Only act on runs that came from a pull request.
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    # Serialize per source branch so two quick pushes cannot race and create
+    # duplicate comments; the marker-based upsert then updates in place.
+    concurrency:
+      group: size-report-comment-${{ github.event.workflow_run.head_repository.full_name }}/${{ github.event.workflow_run.head_branch
+        }}
+      cancel-in-progress: false
+    steps:
+      - name: Download size report artifact
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          # The artifact is absent when the build failed before uploading it
+          # (e.g. build_stubs failed) — that is not an error for this workflow.
+          if gh run download "$RUN_ID" \
+            --repo "$REPO" --name size-report --dir size-report 2>/dev/null; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No size-report artifact on run $RUN_ID; nothing to post"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post or update comment
+        if: steps.download.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |-
+          set -euo pipefail
+
+          REPORT_FILE=size-report/report.md
+          MARKER='<!-- stub-size-report -->'
+
+          # --- Sanitize the PR number carried by the (untrusted) artifact ---
+          PR_NUMBER=$(tr -dc '0-9' < size-report/pr-number || true)
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::warning::Missing/empty PR number in artifact; skipping"
+            exit 0
+          fi
+
+          # The PR the report claims to be for must actually be built from the
+          # commit this run built.  This stops a malicious fork from setting an
+          # arbitrary PR number to hijack the comment thread of another PR.
+          PR_HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)
+          if [ -z "$PR_HEAD_SHA" ] || [ "$PR_HEAD_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::warning::PR #$PR_NUMBER head ('$PR_HEAD_SHA') != built commit ('$EXPECTED_SHA'); skipping"
+            exit 0
+          fi
+
+          # The body must start with our marker; bounds arbitrary content from a
+          # fork that modified the report generator.
+          if ! head -n1 "$REPORT_FILE" | grep -qF "$MARKER"; then
+            echo "::warning::Report artifact missing expected marker; skipping"
+            exit 0
+          fi
+          # Cap well under GitHub's 65536-char comment limit.
+          BODY=$(head -c 60000 "$REPORT_FILE")
+
+          # Find the existing size-report comment (if any) and upsert.
+          COMMENT_ID=$(gh api \
+            "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --paginate --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" \
+            | head -n1 || true)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/$REPO/issues/comments/$COMMENT_ID" \
+              --method PATCH --raw-field body="$BODY"
+          else
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --method POST --raw-field body="$BODY"
+          fi
