@@ -1,8 +1,9 @@
 /* Note: stub is deliberately loaded close to the very top
    of available RAM, to reduce change of colliding with anything
-   else... */
+   else... The iram region fills the upper part of the main
+   instruction RAM bank and ends exactly at its top (0x40108000). */
 MEMORY {
-  iram : org = 0x4010C500, len = 0x3600
+  iram : org = 0x40104800, len = 0x3800
   dram : org = 0x3FFE8100, len = 0x13f00
 }
 
