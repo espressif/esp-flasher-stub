@@ -161,17 +161,14 @@ static inline int s_check_memory_in_progress(void)
  * sector is only left un-erased when verified blank, and program can write any data
  * onto blank (0xFF) flash.
  */
-/* esp8266 has too little IRAM/DRAM for the 4KB read buffer and blank-check code,
- * so it keeps the original unconditional erase (see s_conditional_erase_next below). */
-#ifndef ESP8266
 static bool s_dirty_seen = false;
 
 static int s_sector_is_blank(uint32_t addr, uint32_t sector_size, bool *is_blank)
 {
-    static uint32_t buf[1024]; /* one 4KB sector, 4-byte aligned */
+    uint32_t buf[1024]; /* one 4 KB sector on the stack, 4-byte aligned by type */
     *is_blank = true;
     for (uint32_t off = 0; off < sector_size; off += sizeof(buf)) {
-        uint32_t chunk = (sector_size - off < sizeof(buf)) ? (sector_size - off) : (uint32_t)sizeof(buf);
+        uint32_t chunk = MIN(sector_size - off, (uint32_t)sizeof(buf));
         if (stub_lib_flash_read_buff(addr + off, buf, chunk) != STUB_LIB_OK) {
             return RESPONSE_FAILED_SPI_OP;
         }
@@ -184,7 +181,6 @@ static int s_sector_is_blank(uint32_t addr, uint32_t sector_size, bool *is_blank
     }
     return RESPONSE_SUCCESS;
 }
-#endif /* !ESP8266 */
 
 static int s_conditional_erase_next(void)
 {
@@ -192,7 +188,6 @@ static int s_conditional_erase_next(void)
         return RESPONSE_SUCCESS;
     }
 
-#ifndef ESP8266
     if (!s_dirty_seen) {
         stub_lib_flash_config_t config;
         stub_lib_flash_get_config(&config);
@@ -202,15 +197,13 @@ static int s_conditional_erase_next(void)
             return r;
         }
         if (blank) {
-            uint32_t step = (s_flash_state.erase_remaining < config.sector_size)
-                            ? s_flash_state.erase_remaining : config.sector_size;
+            uint32_t step = MIN(s_flash_state.erase_remaining, config.sector_size);
             s_flash_state.next_erase_addr += config.sector_size;
             s_flash_state.erase_remaining -= step;
             return RESPONSE_SUCCESS;
         }
         s_dirty_seen = true; /* from here on erase everything without reading */
     }
-#endif /* !ESP8266 -- esp8266 falls straight through to unconditional erase */
 
     int result = stub_lib_flash_start_next_erase(&s_flash_state.next_erase_addr,
                                                  &s_flash_state.erase_remaining, 0);
@@ -263,9 +256,7 @@ static int s_init_flash_operation(const uint8_t *buffer, uint16_t size, bool is_
     s_flash_state.next_erase_addr = erase_start;
 
     // Reset the skip-erase heuristic and start the first (conditional) erase without waiting.
-#ifndef ESP8266
     s_dirty_seen = false;
-#endif
     int result = s_conditional_erase_next();
     if (result != RESPONSE_SUCCESS) {
         return result;
