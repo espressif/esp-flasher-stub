@@ -11,8 +11,15 @@
  * Their roles are fixed — no dynamic search needed.
  * ~30% performance improvement over single-buffer for USB-Serial/JTAG flashing.
  */
+/* Widest DMA cache line in use (ESP32-P4 L2). */
+#define FRAME_BUFFER_CACHE_LINE 128U
+/* Round up to whole cache lines so DMA invalidation of the buffer never touches
+ * the CPU-owned metadata below (which would corrupt the frame state). */
+#define FRAME_BUFFER_ALLOC \
+    (((FRAME_BUFFER_SIZE) + FRAME_BUFFER_CACHE_LINE - 1U) & ~(FRAME_BUFFER_CACHE_LINE - 1U))
+
 struct frame_buffer {
-    uint8_t buffer[FRAME_BUFFER_SIZE] __attribute__((aligned(4)));
+    uint8_t buffer[FRAME_BUFFER_ALLOC] __attribute__((aligned(FRAME_BUFFER_CACHE_LINE)));
     volatile size_t frame_length;
     volatile bool frame_complete;
     volatile bool frame_error;
