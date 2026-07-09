@@ -13,6 +13,7 @@
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/sdio.h>
+#include <esp-stub-lib/spi.h>
 #include "transport.h"
 #include "frame_buffer.h"
 #include "slip.h"
@@ -134,6 +135,48 @@ static const struct stub_transport_ops s_sdio_ops = {
     .send_frame   = sdio_send_frame,
 };
 
+/* ---- SPI transport ops ---------------------------------------------------- */
+/* Like SDIO, SPI bypasses SLIP: DMA writes a whole frame into the armed buffer
+ * and stub_lib_spi_take_rx_frame() (polled) latches its length. */
+
+static void spi_arm(void)
+{
+    stub_lib_spi_rearm(frame_buffer_acquire(), FRAME_BUFFER_SIZE);
+}
+
+static const uint8_t *spi_recv_poll(size_t *len, bool *error)
+{
+    *error = false;
+
+    enum frame_buffer_state state = frame_buffer_get_state();
+    if (state == FRAME_BUFFER_STATE_IDLE) {
+        size_t n;
+        if (!stub_lib_spi_take_rx_frame(&n)) {
+            spi_arm();
+            return NULL;
+        }
+        frame_buffer_mark_complete(n);   /* frame already DMA'd into proc buf */
+        state = frame_buffer_get_state();
+        spi_arm();                       /* take done → switch to spare + arm */
+    }
+    if (state == FRAME_BUFFER_STATE_ERROR) {
+        *error = true;
+        return NULL;
+    }
+    return frame_buffer_get_data(len);
+}
+
+static bool spi_send_frame(const void *data, size_t len)
+{
+    return stub_lib_spi_tx_frame(data, len) == STUB_LIB_OK;
+}
+
+static const struct stub_transport_ops s_spi_ops = {
+    .recv_poll    = spi_recv_poll,
+    .recv_release = frame_buffer_reset,
+    .send_frame   = spi_send_frame,
+};
+
 /* ---- Detection & initialisation ------------------------------------------ */
 
 int stub_transport_detect(void)
@@ -142,6 +185,9 @@ int stub_transport_detect(void)
      * ambiguous state after an SDIO boot. */
     if (stub_lib_sdio_is_active()) {
         return TRANSPORT_SDIO;
+    }
+    if (stub_lib_spi_is_active()) {
+        return TRANSPORT_SPI;
     }
     if (stub_lib_usb_otg_is_active()) {
         return TRANSPORT_USB_OTG;
@@ -160,6 +206,12 @@ const struct stub_transport_ops *stub_transport_init(int transport)
         /* Arm the first DMA receive buffer immediately after init. */
         sdio_arm();
         return &s_sdio_ops;
+
+    case TRANSPORT_SPI:
+        stub_lib_spi_init();
+        /* Arm the first DMA receive buffer immediately after init. */
+        spi_arm();
+        return &s_spi_ops;
 
     case TRANSPORT_USB_OTG:
         stub_lib_usb_otg_rominit_intr_attach(USB_INTERRUPT_SOURCE, slip_recv_byte);

@@ -38,7 +38,8 @@ void esp_main(void)
     // stub_lib_clock_init() increases CPU frequency which benefits both USB and UART transfers.
     // Currently only enabled for USB transfers due to concerns about instability (observed on ESP32-S3),
     // because DBIAS voltage not being set. This needs investigation and potentially enabling for all transport types.
-    if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG || transport == TRANSPORT_SDIO) {
+    if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG || transport == TRANSPORT_SDIO ||
+            transport == TRANSPORT_SPI) {
         stub_lib_clock_init();
     }
 
