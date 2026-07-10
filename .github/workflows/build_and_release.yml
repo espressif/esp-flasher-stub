@@ -17,12 +17,12 @@ jobs:
 
     steps:
       - name: Checkout ref commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: 'recursive'
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.13
 
@@ -46,7 +46,7 @@ jobs:
           ./tools/build_all_chips.sh
 
       - name: Upload stub JSONs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stub-jsons
           path: |
@@ -122,15 +122,15 @@ jobs:
       actions: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
 
       - name: Download PR artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: stub-jsons
           path: pr-artifacts
@@ -274,7 +274,7 @@ jobs:
           printf '%s\n' "$PR_NUMBER" > size-report/pr-number
 
       - name: Upload size report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: size-report
           path: size-report/
@@ -294,11 +294,11 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
         shell: bash
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: 3.13
       - name: Install dependencies
@@ -310,13 +310,13 @@ jobs:
           cz changelog ${{ steps.get_version.outputs.VERSION }} --file-name changelog_body.md
           cat changelog_body.md
       - name: Download stub JSONs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: stub-jsons
           path: stub-jsons
       - name: Create release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
