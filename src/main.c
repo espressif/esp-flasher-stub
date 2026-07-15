@@ -62,7 +62,6 @@ void esp_main(void)
 #endif
 
     stub_lib_flash_init(NULL);
-    stub_lib_flash_attach(0, false);
     const struct stub_transport_ops *ops = stub_transport_init(transport);
 
     // Send OHAI greeting to signal stub is active
