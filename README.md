@@ -2,7 +2,7 @@
 
 # ESP Flasher Stub
 
-ESP Flasher Stub is a set of small firmware programs (stubs) that run on Espressif ESP chips to enable fast and reliable flash programming via [esptool](https://github.com/espressif/esptool/). When esptool connects to an ESP chip, it uploads the flasher stub into the chip's RAM. The stub then takes over communication, providing faster flash operations and additional features compared to the chip's built-in ROM bootloader.
+ESP Flasher Stub is a set of small firmware programs (stubs) that run on Espressif ESP chips to enable fast and reliable flash programming via [esptool](https://github.com/espressif/esptool/) and [esp-serial-flasher](https://github.com/espressif/esp-serial-flasher). When esptool connects to an ESP chip, it uploads the flasher stub into the chip's RAM. The stub then takes over communication, providing faster flash operations and additional features compared to the chip's built-in ROM bootloader.
 
 This project has replaced the deprecated [legacy flasher stub of esptool](https://github.com/espressif/esptool-legacy-flasher-stub/) and is the default flasher stub since esptool [v5.3](https://github.com/espressif/esptool/releases/tag/v5.3.0).
 
@@ -20,6 +20,13 @@ This project has replaced the deprecated [legacy flasher stub of esptool](https:
 | Xtensa | ESP32, ESP32-S2, ESP32-S3 |
 | RISC-V | ESP32-C2, ESP32-C3, ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2, ESP32-H4, ESP32-P4, ESP32-P4 (rev1) |
 | Xtensa (LX106) | ESP8266 |
+
+## Obtaining Pre-built Stub JSON Files
+
+The pre-built stub JSON files are available from two sources:
+
+- **GitHub Releases** – Download the JSON files for all supported chips from the [releases page](https://github.com/espressif/esp-flasher-stub/releases).
+- **npm** – Install the [`esp-flasher-stub`](https://www.npmjs.com/package/esp-flasher-stub) package for use in JavaScript/TypeScript projects.
 
 ## Build Dependencies
 

@@ -10,7 +10,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -24,7 +24,7 @@ jobs:
             ruby
 
       - name: Cache CMake build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: unittests/host/build
           key: ${{ runner.os }}-cmake-${{ hashFiles('unittests/host/CMakeLists.txt', 'unittests/host/cmock_config.yml') }}

@@ -102,7 +102,8 @@ Before submitting a pull request:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| Build and Release | Push, PR | Build firmware for all chips; generate the stub size report on PRs (uploaded as an artifact); create releases on tags |
+| Build and Release | Push, PR, tag | Build firmware for all chips; generate the stub size report on PRs; create a draft GitHub release on tags |
+| Publish npm package | GitHub release published | Package stub JSON files and publish to npm (triggered when a draft release is manually published) |
 | Post stub size report | `workflow_run` after Build and Release | Post/update the size report comment on the PR (runs with a write token so it also works for fork PRs) |
 | Host Tests | Push | Run native unit tests |
 | DangerJS | PR | Validate PR style and conventions |
@@ -126,6 +127,8 @@ git push --tags
 
 Create a pull request and edit the automatically created draft release on the [releases page](https://github.com/espressif/esp-flasher-stub/releases).
 
+Publishing the release automatically triggers the Publish npm package workflow, which downloads the stub JSON files attached to the release and publishes the [`esp-flasher-stub`](https://www.npmjs.com/package/esp-flasher-stub) npm package.
+
 ## Utilities
 
 | Script | Description |
@@ -137,3 +140,4 @@ Create a pull request and edit the automatically created draft release on the [r
 | `tools/compare_sizes.py` | Compare stub segment sizes between two builds; used by CI to post size reports on PRs |
 | `tools/compute_plugin_addrs.py` | Emit a linker fragment with plugin load addresses computed from the base stub ELF |
 | `tools/install_all_chips.sh` | Copy built JSON files into an esptool installation |
+| `tools/generate_npm_package.mjs` | Assemble the `esp-flasher-stub` npm package from stub JSON files; used by the Publish npm package workflow |
