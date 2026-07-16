@@ -42,6 +42,7 @@ set(ESP8266_COMPILER_FLAGS
     -DESP8266
     -mlongcalls
     -mtext-section-literals
+    -flto
 )
 
 # RISC-V specific compiler flags
