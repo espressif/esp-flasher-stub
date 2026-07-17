@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <esp-stub-lib/flash.h>
 #include <esp-stub-lib/clock.h>
+#include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/usb_otg.h>
 #include "command_handler.h"
 #include "transport.h"
@@ -39,15 +40,28 @@ void esp_main(void)
 
     const int transport = stub_transport_detect();
 
-    // stub_lib_clock_init() increases CPU frequency which benefits both USB and UART transfers.
-    // Currently only enabled for USB transfers due to concerns about instability (observed on ESP32-S3),
-    // because DBIAS voltage not being set. This needs investigation and potentially enabling for all transport types.
+// UART clock boost is limited to chips with safe DBIAS handling. ESP32 and
+// ESP32-S2 set DBIAS in their target clock init; ESP32-P4 has DBIAS solved.
+// Other chips, notably ESP32-S3, stay on the USB/SDIO-only clock path for now.
+#if defined(ESP32) || defined(ESP32S2) || defined(ESP32P4) || defined(ESP32P4_REV1)
+    uint32_t rom_baudrate = stub_lib_uart_rominit_get_baudrate();
+    if (rom_baudrate == 0) {
+        // ROM download mode defaults to 115200 baud.
+        rom_baudrate = 115200;
+    }
+
+    stub_lib_clock_init();
+
+    // The boost changes the UART source clock. Reprogram the divider for the
+    // ROM link baud, else UART logging and the OHAI/handshake are corrupted.
+    stub_lib_uart_rominit_set_baudrate(UART_NUM_0, rom_baudrate);
+#else
     if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG || transport == TRANSPORT_SDIO) {
         stub_lib_clock_init();
     }
+#endif
 
     stub_lib_flash_init(NULL);
-    stub_lib_flash_attach(0, false);
     const struct stub_transport_ops *ops = stub_transport_init(transport);
 
     // Send OHAI greeting to signal stub is active

@@ -39,7 +39,6 @@ set(XTENSA_COMPILER_FLAGS
 # ESP8266-specific compiler flags
 set(ESP8266_COMPILER_FLAGS
     ${COMMON_COMPILER_FLAGS}
-    -DESP8266
     -mlongcalls
     -mtext-section-literals
     -flto
@@ -74,6 +73,14 @@ function(validate_esp_target TARGET_CHIP)
     endif()
 endfunction()
 
+# Function to get the chip-specific compile definition for target
+function(get_chip_compile_definition TARGET_CHIP OUTPUT_VAR)
+    validate_esp_target(${TARGET_CHIP})
+    string(TOUPPER "${TARGET_CHIP}" CHIP_DEFINE)
+    string(REPLACE "-" "_" CHIP_DEFINE "${CHIP_DEFINE}")
+    set(${OUTPUT_VAR} "-D${CHIP_DEFINE}" PARENT_SCOPE)
+endfunction()
+
 # Function to get toolchain prefix for target
 function(get_esp_toolchain_prefix TARGET_CHIP OUTPUT_VAR)
     validate_esp_target(${TARGET_CHIP})
@@ -90,13 +97,14 @@ endfunction()
 # Function to get all compiler flags for target
 function(get_compiler_flags_for_target TARGET_CHIP OUTPUT_VAR)
     validate_esp_target(${TARGET_CHIP})
+    get_chip_compile_definition(${TARGET_CHIP} CHIP_COMPILE_DEFINITION)
 
     if(TARGET_CHIP STREQUAL "esp8266")
-        set(${OUTPUT_VAR} ${ESP8266_COMPILER_FLAGS} PARENT_SCOPE)
+        set(${OUTPUT_VAR} ${ESP8266_COMPILER_FLAGS} ${CHIP_COMPILE_DEFINITION} PARENT_SCOPE)
     elseif(TARGET_CHIP IN_LIST XTENSA_TARGETS)
-        set(${OUTPUT_VAR} ${XTENSA_COMPILER_FLAGS} PARENT_SCOPE)
+        set(${OUTPUT_VAR} ${XTENSA_COMPILER_FLAGS} ${CHIP_COMPILE_DEFINITION} PARENT_SCOPE)
     elseif(TARGET_CHIP IN_LIST RISCV_TARGETS)
-        set(${OUTPUT_VAR} ${RISCV_COMPILER_FLAGS} PARENT_SCOPE)
+        set(${OUTPUT_VAR} ${RISCV_COMPILER_FLAGS} ${CHIP_COMPILE_DEFINITION} PARENT_SCOPE)
     else()
         message(FATAL_ERROR "Unknown target chip: ${TARGET_CHIP}")
     endif()
