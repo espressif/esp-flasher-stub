@@ -1,3 +1,23 @@
+## v1.1.0 (2026-07-23)
+
+### ✨ New Features
+
+- **esp8266**: enable LTO for flasher stub *(vvzvlad - 4812f15)*
+- enable UART clock boost on safe chips *(vvzvlad - b2e91aa)*
+- skip erase on already-blank sectors *(vvzvlad - 79e0ef3)*
+- add GitHub workflow for publishing npm package *(Liu Ruichao - e1afc10)*
+
+### 🐛 Bug Fixes
+
+- **esp32**: bump esp-stub-lib for HSPI strap flash attach *(Jaroslav Burian - 432eb8a)*
+- **esp32p4**: bump esp-stub-lib for CPLL root mux select *(Jaroslav Burian - 4000d5a)*
+- **flash**: preserve eFuse SPI pad attach *(Jaroslav Burian - e322dc3)*
+
+### 🔧 Code Refactoring
+
+- compute plugin load addresses at build time *(Frantisek Hrbata - 19e753f)*
+
+
 ## v1.0.0 (2026-06-05)
 
 
