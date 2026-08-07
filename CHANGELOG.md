@@ -1,3 +1,10 @@
+## v1.2.1 (2026-08-07)
+
+### 🐛 Bug Fixes
+
+- **esp32s31**: bump esp-stub-lib for 4-byte addressing *(Jaroslav Burian - 33c03dd)*
+
+
 ## v1.2.0 (2026-08-07)
 
 ### ✨ New Features
