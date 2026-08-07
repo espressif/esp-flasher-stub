@@ -1,3 +1,10 @@
+## v1.2.0 (2026-08-07)
+
+### ✨ New Features
+
+- **esp32s31**: enable flasher stub support *(Jaroslav Burian - 1aaebc8)*
+
+
 ## v1.1.0 (2026-07-23)
 
 ### ✨ New Features
