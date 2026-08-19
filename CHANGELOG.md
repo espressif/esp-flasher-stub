@@ -1,3 +1,10 @@
+## v1.2.2 (2026-08-19)
+
+### 🐛 Bug Fixes
+
+- **esp32p4**: bump esp-stub-lib to skip ROM flash XPD when PMU latch is set *(Jaroslav Burian - 11672eb)*
+
+
 ## v1.2.1 (2026-08-07)
 
 ### 🐛 Bug Fixes
