@@ -20,6 +20,11 @@
 #define USB_INTERRUPT_SOURCE  17
 #define UART_INTERRUPT_SOURCE 5
 
+/* Size of the USB-Serial/JTAG IN endpoint FIFO, which is also the endpoint's
+ * max packet size. Staying one byte below it keeps every packet short — see
+ * slip_set_flush_interval() for what a full-size final packet costs us. */
+#define USB_SERIAL_JTAG_PACKET_SIZE 64
+
 /* ---- Interrupt handlers -------------------------------------------------- */
 
 void uart_rx_interrupt_handler()
@@ -165,6 +170,7 @@ const struct stub_transport_ops *stub_transport_init(int transport)
         stub_lib_usb_otg_rominit_intr_attach(USB_INTERRUPT_SOURCE, slip_recv_byte);
         slip_set_tx_fn(stub_lib_usb_otg_tx_one_char);
         slip_set_flush_fn(stub_lib_usb_otg_tx_flush);
+        slip_set_flush_interval(0);
         slip_do_rearm();
         return &s_slip_ops;
 
@@ -175,6 +181,7 @@ const struct stub_transport_ops *stub_transport_init(int transport)
                                                      USB_SERIAL_JTAG_OUT_RECV_PKT_INT_ENA);
         slip_set_tx_fn(stub_lib_usb_serial_jtag_tx_one_char);
         slip_set_flush_fn(stub_lib_usb_serial_jtag_tx_flush);
+        slip_set_flush_interval(USB_SERIAL_JTAG_PACKET_SIZE - 1);
         slip_do_rearm();
         return &s_slip_ops;
 
@@ -195,6 +202,7 @@ const struct stub_transport_ops *stub_transport_init(int transport)
                                           UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT);
         slip_set_tx_fn(stub_lib_uart_tx_one_char);
         slip_set_flush_fn(NULL);
+        slip_set_flush_interval(0);
         slip_do_rearm();
         return &s_slip_ops;
     }

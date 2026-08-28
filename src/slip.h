@@ -22,13 +22,37 @@ extern "C" {
 void slip_set_tx_fn(uint8_t (*tx_fn)(uint8_t));
 
 /**
- * @brief Register flush function called after a complete frame is sent
+ * @brief Register flush function called at the end of every frame
  *
  * Optional — pass NULL for transports that do not need explicit flushing.
+ * Called mid-frame as well, whenever slip_set_flush_interval() is in effect
+ * and that many bytes have piled up since the last flush.
  *
  * @param flush_fn Function pointer with signature: void (*)(void)
  */
 void slip_set_flush_fn(void (*flush_fn)(void));
+
+/**
+ * @brief Force a TX flush every @p bytes bytes, on top of the end-of-frame one
+ *
+ * The USB-Serial/JTAG IN endpoint sends a packet on its own as soon as its
+ * 64-byte FIFO fills, so a frame whose wire length is an exact multiple of 64
+ * ends on a full-size packet. USB treats a full-size packet as "more to come",
+ * so the host driver holds those last 64 bytes waiting for a short packet that
+ * never arrives, while the stub waits for the acknowledgement the host cannot
+ * send.
+ *
+ * stub_lib_usb_serial_jtag_tx_flush() recovers from that after the fact: it
+ * waits for the FIFO to become writable so that WR_DONE emits a zero-length
+ * packet, which terminates the transfer. That wait gives up after 50 ms, and a
+ * WR_DONE issued before the FIFO is writable is a no-op, so the recovery can
+ * fail silently. Flushing before the FIFO can fill keeps every packet short,
+ * so no transfer needs terminating and the frame no longer depends on the
+ * zero-length packet.
+ *
+ * @param bytes Maximum bytes between flushes; 0 disables early flushing
+ */
+void slip_set_flush_interval(size_t bytes);
 
 /**
  * @brief Send a SLIP-encoded frame

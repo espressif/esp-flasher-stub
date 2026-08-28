@@ -32,6 +32,11 @@ static volatile size_t s_rx_cap;
 static uint8_t (*s_tx_one_char)(uint8_t) = stub_lib_uart_tx_one_char;
 static void (*s_flush_fn)(void) = NULL;
 
+/* Bytes written since the last flush, and the limit that forces an early one.
+ * Zero disables the limit, leaving the end-of-frame flush as the only one. */
+static size_t s_flush_interval;
+static size_t s_unflushed;
+
 void slip_set_tx_fn(uint8_t (*tx_fn)(uint8_t))
 {
     if (tx_fn) {
@@ -44,10 +49,32 @@ void slip_set_flush_fn(void (*flush_fn)(void))
     s_flush_fn = flush_fn;
 }
 
+void slip_set_flush_interval(size_t bytes)
+{
+    s_flush_interval = bytes;
+    s_unflushed = 0;
+}
+
 static void slip_flush(void)
 {
+    s_unflushed = 0;
     if (s_flush_fn) {
         s_flush_fn();
+    }
+}
+
+/*
+ * Send one raw byte, flushing early once s_flush_interval bytes have piled up
+ * since the last flush. See slip_set_flush_interval() for why that matters.
+ */
+static void send_byte(uint8_t byte)
+{
+    s_tx_one_char(byte);
+    if (s_flush_interval != 0) {
+        s_unflushed++;
+        if (s_unflushed >= s_flush_interval) {
+            slip_flush();
+        }
     }
 }
 
@@ -55,15 +82,15 @@ static void send_escaped_byte(uint8_t byte)
 {
     switch (byte) {
     case SLIP_END:
-        s_tx_one_char(SLIP_ESC);
-        s_tx_one_char(SLIP_ESC_END);
+        send_byte(SLIP_ESC);
+        send_byte(SLIP_ESC_END);
         break;
     case SLIP_ESC:
-        s_tx_one_char(SLIP_ESC);
-        s_tx_one_char(SLIP_ESC_ESC);
+        send_byte(SLIP_ESC);
+        send_byte(SLIP_ESC_ESC);
         break;
     default:
-        s_tx_one_char(byte);
+        send_byte(byte);
         break;
     }
 }
@@ -73,12 +100,12 @@ bool slip_send_frame(const void *data, size_t size)
     if (!data) {
         return false;
     }
-    s_tx_one_char(SLIP_END);
+    send_byte(SLIP_END);
     const uint8_t *buf = (const uint8_t *)data;
     for (size_t i = 0; i < size; i++) {
         send_escaped_byte(buf[i]);
     }
-    s_tx_one_char(SLIP_END);
+    send_byte(SLIP_END);
     slip_flush();
     return true;
 }
