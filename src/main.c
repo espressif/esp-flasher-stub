@@ -42,9 +42,12 @@ void esp_main(void)
 
 // UART clock boost is limited to chips with safe DBIAS handling. ESP32,
 // ESP32-S2, and ESP32-S31 set DBIAS in their target clock init; ESP32-P4 has
-// DBIAS solved. Other chips, notably ESP32-S3, stay on the USB/SDIO-only clock
-// path for now.
-#if defined(ESP32) || defined(ESP32S2) || defined(ESP32P4) || defined(ESP32P4_REV1) || defined(ESP32S31)
+// DBIAS solved. ESP32-H4 needs none: its clock driver has no frequency-coupled
+// DBIAS and the chip has no PVT support, so the CPU switch to 96 MHz needs no
+// regulator change. Other chips, notably ESP32-S3, stay on the USB/SDIO-only
+// clock path for now.
+#if defined(ESP32) || defined(ESP32S2) || defined(ESP32P4) || defined(ESP32P4_REV1) || defined(ESP32S31) ||            \
+    defined(ESP32H4)
     uint32_t rom_baudrate = stub_lib_uart_rominit_get_baudrate();
     if (rom_baudrate == 0) {
         // ROM download mode defaults to 115200 baud.
