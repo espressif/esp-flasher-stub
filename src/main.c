@@ -41,12 +41,11 @@ void esp_main(void)
     const int transport = stub_transport_detect();
 
 // UART clock boost is limited to chips that bring the core rail up before
-// raising the clock. ESP32, ESP32-S2, and ESP32-S31 set DBIAS in their target
-// clock init; ESP32-P4 has DBIAS solved; ESP32-H21 brings up its DC-DC
-// converter. Other chips, notably ESP32-S3, stay on the USB/SDIO-only clock
-// path for now.
-#if defined(ESP32) || defined(ESP32S2) || defined(ESP32P4) || defined(ESP32P4_REV1) || defined(ESP32S31) ||           \
-    defined(ESP32H21)
+// raising the clock. ESP32, ESP32-S2, ESP32-S3, and ESP32-S31 set DBIAS in
+// their target clock init; ESP32-P4 has DBIAS solved; ESP32-H21 and ESP32-H4
+// bring up their DC-DC converter.
+#if defined(ESP32) || defined(ESP32S2) || defined(ESP32S3) || defined(ESP32P4) || defined(ESP32P4_REV1) ||           \
+    defined(ESP32S31) || defined(ESP32H21) || defined(ESP32H4)
     uint32_t rom_baudrate = stub_lib_uart_rominit_get_baudrate();
     if (rom_baudrate == 0) {
         // ROM download mode defaults to 115200 baud.
