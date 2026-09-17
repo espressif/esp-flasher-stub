@@ -1,3 +1,15 @@
+## v1.3.0 (2026-09-17)
+
+### ✨ New Features
+
+- **esp32h21**: add flasher stub support *(Jaroslav Burian - db2b8ff)*
+- enable UART clock boost for ESP32-S3 and ESP32-H4 *(Jaroslav Burian - 448a89c)*
+
+### 🐛 Bug Fixes
+
+- **esp32c61**: stop the iram window from overlapping dram *(Jaroslav Burian - cb6578c)*
+
+
 ## v1.2.2 (2026-08-19)
 
 ### 🐛 Bug Fixes
