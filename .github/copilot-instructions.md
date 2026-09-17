@@ -17,7 +17,7 @@ These are linked from the main `README.md`, which serves as the user guide.
 **Languages**: C (firmware), Python (build tools, tests)
 **Size**: Small (~11 C source files, ~2000 lines main codebase)
 **Target Chips**: esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp32s31, esp8266
-**Build Time**: ~0.5-1.5 seconds per chip, ~10-16 seconds for all chips built by build_all_chips.sh (14 chips)
+**Build Time**: ~0.5-1.5 seconds per chip, ~10-16 seconds for all chips built by build_all_chips.sh (15 chips)
 
 ## Critical Setup Steps (ALWAYS Follow This Order)
 
@@ -119,7 +119,7 @@ source ./tools/export_toolchains.sh
 ./tools/build_all_chips.sh
 ```
 
-**Build Time**: ~10-15 seconds for all 14 chips (note: cmake defines 15 total targets, but build script excludes esp32h21)
+**Build Time**: ~10-15 seconds for all 15 chips
 **Output**: Creates `build-{chip}/` directories for each chip with ELF and JSON files
 
 This script builds each chip with `cmake --fresh` followed by `ninja`. For plugin-capable chips (all except esp8266/esp32), CMake also computes the plugin load addresses from the base stub, links the plugin, and embeds it in the JSON.
@@ -286,7 +286,7 @@ The repository uses pre-commit.ci for automated PR checks. It runs all pre-commi
 - **Linker scripts**: Each chip has a specific linker script in `src/ld/{chip}.ld`
 - **Post-build processing**: `tools/elf2json.py` requires pyelftools; called automatically after build
 - **Plugin build**: Chips with plugin support (all except esp8266 and esp32) build the base stub, compute plugin load addresses from it via a build-time custom command, link the plugin, and embed it in the JSON
-- **Chip support**: cmake defines 15 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp32s31, esp8266), but build_all_chips.sh only builds 14 (excludes esp32h21)
+- **Chip support**: cmake and build_all_chips.sh both cover all 15 chips (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h21, esp32h4, esp32p4-rev1, esp32p4, esp32s31, esp8266)
 
 ## Common Issues and Workarounds
 
