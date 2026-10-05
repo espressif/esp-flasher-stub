@@ -1,4 +1,5 @@
 build*/
+spi-build*/
 toolchains/
 venv/
 __pycache__
