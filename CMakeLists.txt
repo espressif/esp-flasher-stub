@@ -6,6 +6,8 @@ if("${TARGET_CHIP}" STREQUAL "OFF")
     message(FATAL_ERROR "Please set target chip via -DTARGET_CHIP.")
 endif()
 
+option(STUB_SPI_ENABLED "Build with SPI slave transport support" OFF)
+
 # esp-stub-lib uses ESP_TARGET as the base chip directory name (no -rev suffix),
 # and an optional ESP_TARGET_REV to select the correct ROM/behavior.
 # Example:
