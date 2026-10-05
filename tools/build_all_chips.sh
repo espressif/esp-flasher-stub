@@ -8,6 +8,10 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Change to project root
 cd "$PROJECT_ROOT"
 
+# Build the SPI slave transport into every chip when STUB_SPI_ENABLED=ON is set
+# in the environment; otherwise it is left off (the stub's default).
+STUB_SPI_ENABLED="${STUB_SPI_ENABLED:-OFF}"
+
 ALL_CHIPS=(
     "esp32"
     "esp32c2"
@@ -34,6 +38,6 @@ for chip in "${ALL_CHIPS[@]}"; do
 
     # Single pass: CMake wires the base stub, plugin address computation, plugin
     # ELF(s), and JSON as one dependency graph, so a plain ninja builds it all.
-    cmake -G Ninja -B "$DIR" -DTARGET_CHIP=$chip --fresh -Wno-dev
+    cmake -G Ninja -B "$DIR" -DTARGET_CHIP=$chip -DSTUB_SPI_ENABLED=$STUB_SPI_ENABLED --fresh -Wno-dev
     ninja -C "$DIR"
 done
