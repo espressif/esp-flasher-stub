@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
+#include <esp-stub-lib/slave_spi.h>
 #include "frame_buffer.h"
 
 /*
@@ -12,7 +13,7 @@
  * ~30% performance improvement over single-buffer for USB-Serial/JTAG flashing.
  */
 struct frame_buffer {
-    uint8_t buffer[FRAME_BUFFER_SIZE] __attribute__((aligned(4)));
+    uint8_t buffer[FRAME_BUFFER_SIZE] __attribute__((aligned(SLAVE_SPI_DMA_ALIGN)));
     volatile size_t frame_length;
     volatile bool frame_complete;
     volatile bool frame_error;

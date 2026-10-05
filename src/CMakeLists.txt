@@ -14,6 +14,10 @@ target_link_options(${TARGET_NAME} PRIVATE
 
 target_link_libraries(${TARGET_NAME} PRIVATE esp-stub-lib)
 
+if(STUB_SPI_ENABLED)
+    target_compile_definitions(${TARGET_NAME} PRIVATE STUB_SPI_ENABLED)
+endif()
+
 # Base stub ELF — referenced as a dependency by the plugin-address and JSON
 # custom commands below.
 set(BASE_ELF $<TARGET_FILE:${TARGET_NAME}>)
