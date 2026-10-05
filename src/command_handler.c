@@ -28,6 +28,9 @@
 #define RESPONSE_STATUS_SIZE 2
 #define MAX_RESPONSE_SIZE (HEADER_SIZE + MAX_RESPONSE_DATA_SIZE + RESPONSE_STATUS_SIZE)
 
+#define READ_FLASH_MAX_PACKET_SIZE 4096U
+#define READ_FLASH_BUFFER_OVERHEAD 6U
+
 /* Memory operation state */
 struct memory_operation_state {
     uint32_t total_remaining;
@@ -776,12 +779,7 @@ static int s_read_flash_post_process(const struct cmd_ctx *ctx)
 
     // Flash data buffer needs to be aligned to 4 bytes for the flash read function.
     // 4096 plus 6 bytes for the alignment and the MD5 hash.
-    uint8_t data[4102] __attribute__((aligned(4)));
-
-    // Check if the buffer size (including potential alignment requirements - 6 bytes) is large enough to hold the packet size
-    if (packet_size > sizeof(data) - 6) {
-        return RESPONSE_BAD_DATA_LEN;
-    }
+    uint8_t data[READ_FLASH_MAX_PACKET_SIZE + READ_FLASH_BUFFER_OVERHEAD] __attribute__((aligned(4)));
 
     // Release the READ_FLASH command frame so the buffer can receive ACKs
     ctx->transport->recv_release();
@@ -848,6 +846,18 @@ static int s_read_flash(const struct cmd_ctx *ctx)
     if (ctx->packet_size != READ_FLASH_SIZE) {
         return RESPONSE_BAD_DATA_LEN;
     }
+
+    // READ_FLASH payload is four little-endian uint32 fields: offset (bytes 0-3),
+    // read_size (bytes 4-7), packet_size (bytes 8-11) and max_inflight (bytes 12-15)
+    uint32_t read_size = get_le_to_u32(ctx->data + 4);
+    uint32_t packet_size = get_le_to_u32(ctx->data + 8);
+
+    // Validate before SUCCESS is sent; post-process errors reach the host only after it.
+    if (packet_size > READ_FLASH_MAX_PACKET_SIZE || (read_size > 0 && packet_size == 0) ||
+            MIN(read_size, packet_size) > ctx->transport->max_tx_frame_size) {
+        return RESPONSE_BAD_DATA_LEN;
+    }
+
     s_pending_post_process = s_read_flash_post_process;
 
     return RESPONSE_SUCCESS;

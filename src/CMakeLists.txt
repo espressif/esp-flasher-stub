@@ -14,10 +14,19 @@ target_link_options(${TARGET_NAME} PRIVATE
 
 target_link_libraries(${TARGET_NAME} PRIVATE esp-stub-lib)
 
+if(STUB_SPI_ENABLED)
+    target_compile_definitions(${TARGET_NAME} PRIVATE STUB_SPI_ENABLED)
+endif()
+
 # Base stub ELF — referenced as a dependency by the plugin-address and JSON
 # custom commands below.
 set(BASE_ELF $<TARGET_FILE:${TARGET_NAME}>)
-set(STUB_JSON ${CMAKE_BINARY_DIR}/${TARGET_CHIP}.json)
+if(STUB_SPI_ENABLED)
+    set(STUB_JSON_NAME ${TARGET_CHIP}-spi.json)
+else()
+    set(STUB_JSON_NAME ${TARGET_CHIP}.json)
+endif()
+set(STUB_JSON ${CMAKE_BINARY_DIR}/${STUB_JSON_NAME})
 
 # ---------------------------------------------------------------------------
 # Plugins
@@ -158,7 +167,7 @@ add_custom_command(
     OUTPUT  ${STUB_JSON}
     COMMAND ${CMAKE_SOURCE_DIR}/tools/elf2json.py ${BASE_ELF} ${STUB_JSON} ${_plugin_json_args}
     DEPENDS ${BASE_ELF} ${_plugin_elfs} ${CMAKE_SOURCE_DIR}/tools/elf2json.py
-    COMMENT "Generating ${TARGET_CHIP}.json"
+    COMMENT "Generating ${STUB_JSON_NAME}"
     VERBATIM
 )
 add_custom_target(${TARGET_NAME}-json ALL DEPENDS ${STUB_JSON})
