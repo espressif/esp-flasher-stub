@@ -96,14 +96,14 @@ ninja -C build
 
 ## How to Use with Esptool
 
-1. Install esptool in [development mode](https://docs.espressif.com/projects/esptool/en/latest/esp32/contributing.html#development-setup).
+1. Install the latest esptool from the `master` branch as described in [Testing the Latest Code](https://docs.espressif.com/projects/esptool/en/latest/esp32/contributing.html#testing-the-latest-code).
 2. Obtain the flasher stub binaries as JSON files either from the [releases page](https://github.com/espressif/esp-flasher-stub/releases) or from the artifacts of your pull request.
 3. Replace the esptool JSON files in the `esptool/targets/stub_flasher` directory with the obtained JSON files.
 
     Example copy command (adjust the path to your esptool directory):
 
     ```sh
-    cp build-*/*.json ~/esptool/esptool/targets/stub_flasher/1/
+    cp build-*/*.json ~/esptool/esptool/targets/stub_flasher/2/
     ```
 
 ## How It Works
@@ -112,7 +112,7 @@ The flasher stub operates through upload, initialization, handshake (`OHAI` over
 
 ## Contributing
 
-See the [Contributing](docs/development-guide.md#contributing) section of the Development Guide for code style, pre-commit hooks, copyright headers, and the pull request checklist.
+Read the [Contributing](docs/development-guide.md#contributing) section of the Development Guide before you open an issue or a pull request.
 
 ## How to Release (for Maintainers Only)
 
