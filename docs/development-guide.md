@@ -1,143 +1,97 @@
 # Development Guide
 
-For project overview, prerequisites, and build instructions, see the [README](../README.md). This guide covers architecture, testing, contributing guidelines, and CI/CD details.
-
-## Architecture
-
-For a detailed description of the firmware architecture, source code structure, modules, build system, and linker scripts, see the [Architecture](architecture.md) document.
-
-## Testing
-
-See [unittests/README.md](../unittests/README.md) for details on running and adding tests.
-
 ## Contributing
 
-### Code Style
+### Before You Start
 
-C code is formatted with [Artistic Style (astyle)](https://astyle.sourceforge.net/) version 3.4.7, configured in `.astyle-rules.yml`. Python code follows [ruff](https://docs.astral.sh/ruff/) formatting and linting rules defined in `pyproject.toml`.
+- Search the [existing issues](https://github.com/espressif/esp-flasher-stub/issues).
+- Before you report a bug, check that it still happens with the latest esptool from the `master` branch on GitHub, installed as [Testing the Latest Code](https://docs.espressif.com/projects/esptool/en/latest/esp32/contributing.html#testing-the-latest-code) describes. In the report, give the chip you used and the output of `git describe` run in the `esptool` directory.
+- The `master` branch of esptool contains the latest released stub. To test a stub that is not released yet, build it from this repository and install it as [How to Use with Esptool](../README.md#how-to-use-with-esptool) describes.
 
-### Pre-commit Hooks
+> [!IMPORTANT]
+> Discuss every pull request with the maintainers in an [issue](https://github.com/espressif/esp-flasher-stub/issues/new/choose) first. Open the pull request only after they agree on the change.
 
-Install and activate the [pre-commit](https://pre-commit.com/) hooks:
+### Development Setup
+
+Set up the [Build Dependencies](../README.md#build-dependencies) and install the host test packages in [Prerequisites](../unittests/README.md#prerequisites). Then install the [pre-commit](https://pre-commit.com/) hooks, including the `commit-msg` hook, in the virtual environment:
 
 ```sh
 source venv/bin/activate
 pip install pre-commit
-pre-commit install -t pre-commit -t commit-msg
+pre-commit install
 ```
 
-Run all checks manually:
+### Code and Tests
 
-```sh
-pre-commit run --all-files
-```
+- Add or update tests for every change in behaviour, and update the documents that [Documentation](#documentation) names.
+- To add a chip, update the `esp-stub-lib` submodule to a commit of [esp-stub-lib](https://github.com/espressif/esp-stub-lib) that supports the chip. Then add the chip to `cmake/esp-targets.cmake`, `tools/build_all_chips.sh` and the [Supported Chips](../README.md#supported-chips) table, and add its linker script to `src/ld/`.
+- Run `./run-tests.sh` in `unittests/host`. The host tests must pass. CI does not run them for pull requests from forks.
+- Build the firmware for at least one chip as [How to Build](../README.md#how-to-build) describes, and check that the build directory contains `<chip>.json`.
 
-The hooks enforce:
+### Pre-commit Hooks
 
-- C code formatting (astyle)
-- Python linting and formatting (ruff, mypy)
-- Copyright header validation (Apache-2.0 OR MIT)
-- Trailing whitespace, line endings, and YAML formatting
-- [Conventional Commits](https://www.conventionalcommits.org/) message format
+> [!IMPORTANT]
+> `pre-commit run --all-files` must pass before you open a pull request and before every push to it.
 
-### Copyright Headers
-
-All source files must include an SPDX copyright header. The copyright year range is automatically managed by the check-copyright tool.
-
-**C files:**
-
-```c
-/*
- * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Apache-2.0 OR MIT
- */
-```
-
-**Python files:**
-
-```python
-# SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
-# SPDX-License-Identifier: Apache-2.0 OR MIT
-```
+- The hooks in [.pre-commit-config.yaml](../.pre-commit-config.yaml) enforce the code style and the SPDX copyright headers. They reformat C, Python and YAML files. They add missing copyright headers and update the years in existing ones.
+- A hook that changes a file fails. Review the changes, add them to the commit they belong to and run the hooks again.
+- Do not bypass the hooks with `git commit --no-verify` or the `SKIP` environment variable. Do not add `# noqa` or `# type: ignore` unless the pull request description explains why.
 
 ### Commit Messages
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/). Releases are managed with [commitizen](https://commitizen-tools.github.io/commitizen/).
+- Write commit messages in the [Conventional Commits](https://www.conventionalcommits.org/) format.
+- The `commit-msg` hook checks each message when you commit. `pre-commit run --all-files` does not check commit messages.
+- Squash fixup commits, including the fix commit that pre-commit.ci pushes, into the commits they fix.
+- Do not edit `CHANGELOG.md`. [commitizen](https://commitizen-tools.github.io/commitizen/) generates it from the commit messages when a release is made.
 
-### Pull Request Checklist
+### Documentation
 
-Before submitting a pull request:
+Update the documents that describe what you change:
 
-1. Run host tests:
+- [README.md](../README.md) for supported chips, build dependencies and build steps.
+- [Architecture](architecture.md) for the firmware architecture, source files, modules, the build system and linker scripts.
+- [Plugin System](plugin-system.md) and the documents in [plugins](plugins/) for plugins.
+- [unittests/README.md](../unittests/README.md) for tests.
+- This guide for contribution rules, CI workflows, releasing and the scripts in `tools/` that the other documents do not describe.
 
-   ```sh
-   cd unittests/host && ./run-tests.sh && cd ../..
-   ```
+### Pull Requests
 
-2. Build firmware for at least one chip:
-
-   ```sh
-   source venv/bin/activate
-   source ./tools/export_toolchains.sh
-   cmake . -B build -G Ninja -DTARGET_CHIP=esp32s2 --fresh
-   ninja -C build
-   ```
-
-3. Run pre-commit hooks:
-
-   ```sh
-   pre-commit run --all-files
-   ```
-
-4. Verify the JSON output was generated:
-
-   ```sh
-   ls -la build/*.json
-   ```
+- Open the pull request against `master` and keep it to one logical change.
+- Fill in the sections of the [pull request template](https://github.com/espressif/esp-flasher-stub/blob/master/.github/pull_request_template.md), and name the issue in which the maintainers agreed on the change.
+- The DangerJS bot comments when the pull request breaks one of its rules, for example on the commit messages, the description or the branch name. Make the changes that the comment asks for.
 
 ## CI/CD
 
-### GitHub Actions Workflows
-
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| Build and Release | Push, PR, tag | Build firmware for all chips; generate the stub size report on PRs; create a draft GitHub release on tags |
-| Publish npm package | GitHub release published | Package stub JSON files and publish to npm (triggered when a draft release is manually published) |
-| Post stub size report | `workflow_run` after Build and Release | Post/update the size report comment on the PR (runs with a write token so it also works for fork PRs) |
-| Host Tests | Push | Run native unit tests |
-| DangerJS | PR | Validate PR style and conventions |
-| Jira | PR | Sync with Jira issue tracker |
+| Build and release | Push, pull request, manual | Builds the stubs for all chips and the npm package. Makes the size report on pull requests and a draft release on tags. |
+| Post stub size report | Build and release finished for a pull request | Posts the size report as a comment on the pull request, also for pull requests from forks |
+| Host Tests | Push | Runs the host tests |
+| DangerJS Pull Request linter | Pull request | Checks the pull request against the DangerJS rules |
+| Sync to Jira | New issue, issue comment, hourly, manual | Copies issues, comments and new pull requests to Jira |
+| Publish npm package | Release published | Publishes the stub JSON files of the release as the [`esp-flasher-stub`](https://www.npmjs.com/package/esp-flasher-stub) npm package |
 
-Pre-commit.ci also runs automatically on pull requests to verify code style.
+The [pre-commit.ci](https://pre-commit.ci/) service runs the pre-commit hooks on pull requests and pushes a commit with the fixes they make.
 
 ## Releasing (Maintainers Only)
 
 ```sh
-python -m venv venv
 source venv/bin/activate
 pip install commitizen czespressif
 git fetch
 git checkout -b update/release_v<version>
 git reset --hard origin/master
 cz bump
-git push -u
+git push -u origin HEAD
 git push --tags
 ```
 
-Create a pull request and edit the automatically created draft release on the [releases page](https://github.com/espressif/esp-flasher-stub/releases).
-
-Publishing the release automatically triggers the Publish npm package workflow, which downloads the stub JSON files attached to the release and publishes the [`esp-flasher-stub`](https://www.npmjs.com/package/esp-flasher-stub) npm package.
+Open a pull request for the branch. The Build and release workflow creates a draft release for the pushed tag. Edit and publish it on the [releases page](https://github.com/espressif/esp-flasher-stub/releases).
 
 ## Utilities
 
 | Script | Description |
 |---|---|
-| `tools/build_all_chips.sh` | Build firmware for all supported chips |
-| `tools/setup_toolchains.sh` | Download and extract cross-compilation toolchains |
-| `tools/export_toolchains.sh` | Add toolchain directories to `PATH` (must be sourced) |
-| `tools/elf2json.py` | Convert ELF binary to JSON format for esptool; embeds plugin data when `--plugin` is specified |
-| `tools/compare_sizes.py` | Compare stub segment sizes between two builds; used by CI to post size reports on PRs |
-| `tools/compute_plugin_addrs.py` | Emit a linker fragment with plugin load addresses computed from the base stub ELF |
-| `tools/install_all_chips.sh` | Copy built JSON files into an esptool installation |
-| `tools/generate_npm_package.mjs` | Assemble the `esp-flasher-stub` npm package from stub JSON files; used by the Publish npm package workflow |
+| `tools/install_all_chips.sh` | Copies the JSON files from the `build-*` directories to the directory set in `ESPTOOL_STUBS_DIR`, for example `esptool/targets/stub_flasher/2` in an esptool checkout |
+| `tools/compare_sizes.py` | Compares the stub segment sizes of two builds for the size report on pull requests |
+| `tools/generate_npm_package.mjs` | Assembles the npm package from the stub JSON files |
