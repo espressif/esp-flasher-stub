@@ -1,3 +1,18 @@
+## v1.4.0 (2026-10-07)
+
+### ✨ New Features
+
+- **esp32c6**: enable clock boost on UART and bump esp-stub-lib *(Jaroslav Burian - c775281)*
+
+### 🐛 Bug Fixes
+
+- **esp32c5**: bump esp-stub-lib for ECO4 and ECO5 opiflash support *(Jaroslav Burian - a300b0e)*
+
+### 📖 Documentation
+
+- **contributing**: Rewrite the contribution guide and add AGENTS.md *(Roland Dobai - e6ff519)*
+
+
 ## v1.3.0 (2026-09-17)
 
 ### ✨ New Features
