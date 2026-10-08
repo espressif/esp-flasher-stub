@@ -13,15 +13,9 @@ The W25N01GVxxxG/T/R family is supported (1 Gbit, SPI NAND).
 
 **ESP32-S3 only** (for now). Support for additional chips is planned. ESP32 and ESP8266 do not support the plugin system and will not be supported.
 
-## NAND Geometry (W25N01GV)
+## NAND Geometry
 
-| Parameter | Value |
-|---|---|
-| Page size | 2048 bytes |
-| Pages per block | 64 |
-| Block size | 128 KB (131072 bytes) |
-| Total blocks | 1024 |
-| Total capacity | 1 Gbit (128 MB) |
+`SPI_NAND_ATTACH` carries the page size, erase block size, and block count. Page size is 2048 or 4096 bytes. The W25N01GV defaults are 2048-byte pages, 64 pages per block (128 KB), and 1024 blocks.
 
 ## Protocol Overview
 
@@ -35,7 +29,7 @@ All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler sig
 
 ### `0xD5` — `SPI_NAND_ATTACH`
 
-**Request payload**: 4-byte LE `hspi_arg` (SPI pin configuration, same encoding as `SPI_ATTACH`).
+**Request payload**: 4 × LE32: `hspi_arg` (SPI pin configuration, same encoding as `SPI_ATTACH`), `page_size` (2048 or 4096), `block_size` (a multiple of `page_size`), `block_count` (erase-all length).
 
 **Response**: `value = status_reg<<24 | mfr_id<<16 | dev_id`, extra payload = 1-byte `prot_reg`. Status `RESPONSE_SUCCESS` or `RESPONSE_FAILED_SPI_OP`.
 
@@ -103,13 +97,13 @@ All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler sig
 
 **Response**: `RESPONSE_SUCCESS` or `RESPONSE_FAILED_SPI_OP` (first failing block).
 
-Erases all 1024 blocks sequentially.
+Erases `block_count` blocks from `SPI_NAND_ATTACH`, sequentially.
 
 ---
 
 ### `0xDC` — `SPI_NAND_ERASE_REGION`
 
-**Request payload**: 2 × LE32: `offset`, `erase_size`. Both must be block-aligned (multiples of 128 KB).
+**Request payload**: 2 × LE32: `offset`, `erase_size`. Both must be multiples of the block size from `SPI_NAND_ATTACH`.
 
 **Response**: `RESPONSE_SUCCESS`, `RESPONSE_BAD_DATA_LEN` (misalignment), or `RESPONSE_FAILED_SPI_OP`.
 

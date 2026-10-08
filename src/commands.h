@@ -97,8 +97,8 @@ enum esp_response_code {
 #define READ_FLASH_SIZE             16
 #define ERASE_FLASH_SIZE            0
 #define ERASE_REGION_SIZE           8
-// NAND flash command sizes
-#define SPI_NAND_ATTACH_SIZE        4
+/* hspi_arg, page_size, block_size, block_count, all LE32 */
+#define SPI_NAND_ATTACH_SIZE        16
 #define SPI_NAND_READ_BBM_SIZE      4
 /* 4 bytes page_number + 1 byte is_bad */
 #define SPI_NAND_WRITE_BBM_SIZE     5
