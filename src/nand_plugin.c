@@ -20,12 +20,11 @@
 #include "plugin_table.h"
 #include "transport.h"
 
-/* Largest page the plugin buffer can hold. The attach command selects
- * NAND_PAGE_SIZE_2K or NAND_PAGE_SIZE_4K. Read, write, and the debug read share
- * one buffer; they do not run together. A streamed read packet stays within one
- * sector, which is what esptool sends. */
-#define NAND_PAGE_SIZE_MAX   NAND_PAGE_SIZE_4K
-#define NAND_PACKET_SIZE_MAX NAND_PAGE_SIZE_4K
+/* Largest page the plugin buffer can hold. The attach command selects 2048 or 4096.
+ * Read, write, and the debug read share one buffer; they do not run together.
+ * A streamed read packet stays within one 4 KB sector, which is what esptool sends. */
+#define NAND_PAGE_SIZE_MAX 4096
+#define NAND_PACKET_SIZE_MAX 4096
 
 static uint8_t s_nand_page_buf[NAND_PAGE_SIZE_MAX] __attribute__((aligned(4)));
 
@@ -49,7 +48,7 @@ static uint32_t nand_block_size(void)
 
 static bool nand_geometry_ok(uint32_t page_size, uint32_t block_size, uint32_t block_count)
 {
-    if (page_size != NAND_PAGE_SIZE_2K && page_size != NAND_PAGE_SIZE_4K) {
+    if (page_size != 2048 && page_size != 4096) {
         return false;
     }
     if (block_size == 0 || (block_size % page_size) != 0) {
