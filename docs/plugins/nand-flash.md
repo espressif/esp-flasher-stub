@@ -1,7 +1,7 @@
 # NAND Flash Support
 
 > [!WARNING]
-> NAND flash support is in **preview** state. It has been tested only with the W25N01GV chip on ESP32-S3. The API and behavior may change in future releases.
+> NAND flash support is in **preview** state. It has been tested with the W25N01GV chip on ESP32-S3. ESP32-P4 builds the same plugin. The API and behavior may change in future releases.
 
 ## Supported Hardware
 
@@ -11,7 +11,9 @@ The W25N01GVxxxG/T/R family is supported (1 Gbit, SPI NAND).
 
 ### Supported MCUs
 
-**ESP32-S3 only** (for now). Support for additional chips is planned. ESP32 and ESP8266 do not support the plugin system and will not be supported.
+**ESP32-S3 and ESP32-P4** (`TARGET_CHIP=esp32p4`, the ECO5 ROM). `esp32p4-rev1` is not included: its ROM GPIO entry points differ. ESP32 and ESP8266 do not support the plugin system and will not be supported.
+
+On ESP32-P4 every pin is routed through the GPIO matrix. The default pins match the ESP32-S3 FSPI bus (CLK 12, Q 13, D 11, CS 10, HD 9), and GPIO 14 is driven as WP. Pass `--spi-connection` to move CLK, Q, D, HD, and CS. The SPI clock is XTAL divided by 2 (20 MHz).
 
 ## NAND Geometry
 
