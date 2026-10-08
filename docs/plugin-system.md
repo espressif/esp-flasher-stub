@@ -126,7 +126,7 @@ The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plug
 
 ## Chip Support
 
-Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT built in to the base stub. Currently, ESP32-S3 is the only chip that ships with a plugin (the NAND plugin). Support for additional chips is planned.
+Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT built in to the base stub. The NAND plugin is built for ESP32-S3 and ESP32-P4.
 
 ## Adding a New Plugin
 
