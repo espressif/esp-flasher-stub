@@ -1,3 +1,9 @@
+## v1.4.1 (2026-10-14)
+
+### 🐛 Bug Fixes
+
+- Update stub - ESP32-C61 ECO5, ESP32-P4 ECO8 and ESP32-C5 160MHz PLL *(Peter Dragun - bda1df4)*
+
 ## v1.4.0 (2026-10-07)
 
 ### ✨ New Features
