@@ -138,7 +138,7 @@ void tearDown(void)
 /* nand_plugin_attach                                                        */
 /* ======================================================================== */
 
-/* Attach payload: hspi, page_size=2048, block_size=131072, block_count=1024. */
+/* Attach payload: hspi, page_size=2048, block_size=131072, block_count=1024, WP=14. */
 static void fill_default_attach(uint8_t data[SPI_NAND_ATTACH_SIZE], uint32_t hspi_arg)
 {
     memset(data, 0, SPI_NAND_ATTACH_SIZE);
@@ -153,6 +153,7 @@ static void fill_default_attach(uint8_t data[SPI_NAND_ATTACH_SIZE], uint32_t hsp
     data[10] = 0x02; /* 131072 */
     data[12] = 0x00;
     data[13] = 0x04; /* 1024 */
+    data[16] = 14;
 }
 
 static void expect_nand_geometry(void)
@@ -168,7 +169,7 @@ static void attach_default_geometry(void)
     struct command_response_data resp = {0};
 
     fill_default_attach(data, 0);
-    stub_target_nand_attach_ExpectAndReturn(0, 2048, 0x20000, 0);
+    stub_target_nand_attach_ExpectAndReturn(0, 2048, 0x20000, 14, 0);
     stub_target_nand_read_id_IgnoreAndReturn(0);
     stub_target_nand_read_register_IgnoreAndReturn(0);
     TEST_ASSERT_EQUAL_INT(RESPONSE_SUCCESS,
@@ -181,7 +182,7 @@ void test_attach_success(void)
     struct command_response_data resp = {0};
 
     fill_default_attach(data, 0x04030201);
-    stub_target_nand_attach_ExpectAndReturn(0x04030201, 2048, 0x20000, 0);
+    stub_target_nand_attach_ExpectAndReturn(0x04030201, 2048, 0x20000, 14, 0);
     stub_target_nand_read_id_IgnoreAndReturn(0);
     stub_target_nand_read_register_IgnoreAndReturn(0);
 
@@ -191,13 +192,29 @@ void test_attach_success(void)
     TEST_ASSERT_EQUAL_UINT16(1, resp.data_size);
 }
 
+void test_attach_legacy_payload_uses_default_wp(void)
+{
+    uint8_t data[SPI_NAND_ATTACH_SIZE];
+    struct command_response_data resp = {0};
+
+    fill_default_attach(data, 0);
+    stub_target_nand_attach_ExpectAndReturn(0, 2048, 0x20000, 14, 0);
+    stub_target_nand_read_id_IgnoreAndReturn(0);
+    stub_target_nand_read_register_IgnoreAndReturn(0);
+
+    int rc =
+        nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE - sizeof(uint32_t), &resp);
+
+    TEST_ASSERT_EQUAL_INT(RESPONSE_SUCCESS, rc);
+}
+
 void test_attach_target_failure(void)
 {
     uint8_t data[SPI_NAND_ATTACH_SIZE];
     struct command_response_data resp = {0};
 
     fill_default_attach(data, 0);
-    stub_target_nand_attach_ExpectAndReturn(0, 2048, 0x20000, -1);
+    stub_target_nand_attach_ExpectAndReturn(0, 2048, 0x20000, 14, -1);
 
     int rc = nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE, &resp);
 
@@ -943,6 +960,7 @@ int main(void)
     UnityBegin(__FILE__);
 
     RUN_TEST(test_attach_success);
+    RUN_TEST(test_attach_legacy_payload_uses_default_wp);
     RUN_TEST(test_attach_target_failure);
     RUN_TEST(test_attach_bad_size);
 

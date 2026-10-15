@@ -291,7 +291,7 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
 int nand_plugin_attach(uint8_t command, const uint8_t *data, uint32_t len, struct command_response_data *resp)
 {
     (void)command;
-    if (len != SPI_NAND_ATTACH_SIZE) {
+    if (len != SPI_NAND_ATTACH_SIZE && len != SPI_NAND_ATTACH_SIZE - sizeof(uint32_t)) {
         return RESPONSE_BAD_DATA_LEN;
     }
 
@@ -299,11 +299,12 @@ int nand_plugin_attach(uint8_t command, const uint8_t *data, uint32_t len, struc
     uint32_t page_size = get_le_to_u32(data + 4);
     uint32_t block_size = get_le_to_u32(data + 8);
     uint32_t block_count = get_le_to_u32(data + 12);
+    uint32_t wp_pin = len == SPI_NAND_ATTACH_SIZE ? get_le_to_u32(data + 16) : 14;
     if (!nand_geometry_ok(page_size, block_size, block_count)) {
         return RESPONSE_BAD_DATA_LEN;
     }
     s_nand_block_count = block_count;
-    int result = stub_target_nand_attach(hspi_arg, page_size, block_size);
+    int result = stub_target_nand_attach(hspi_arg, page_size, block_size, wp_pin);
     if (result != 0) {
         resp->value = (uint32_t)result;
         return RESPONSE_FAILED_SPI_OP;

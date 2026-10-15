@@ -1,19 +1,19 @@
 # NAND Flash Support
 
 > [!WARNING]
-> NAND flash support is in **preview** state. It has been tested with the W25N01GV chip on ESP32-S3. ESP32-P4 builds the same plugin. The API and behavior may change in future releases.
+> NAND flash support is in **preview** state. It has been tested with the W25N01GV on ESP32-S3 and the MT29F2G01ABAGDWB on ESP32-P4. The API and behavior may change in future releases.
 
 ## Supported Hardware
 
 ### NAND Chips
 
-The W25N01GVxxxG/T/R family is supported (1 Gbit, SPI NAND).
+The W25N01GVxxxG/T/R family (1 Gbit) and Micron MT29F2G01ABAGDWB (2 Gbit) are supported.
 
 ### Supported MCUs
 
 **ESP32-S3 and ESP32-P4** (`TARGET_CHIP=esp32p4`, the ECO5 ROM). `esp32p4-rev1` is not included: its ROM GPIO entry points differ. ESP32 and ESP8266 do not support the plugin system and will not be supported.
 
-On ESP32-P4 every pin is routed through the GPIO matrix. The default pins match the ESP32-S3 FSPI bus (CLK 12, Q 13, D 11, CS 10, HD 9), and GPIO 14 is driven as WP. Pass `--spi-connection` to move CLK, Q, D, HD, and CS. The SPI clock is XTAL divided by 2 (20 MHz).
+On ESP32-P4 every pin is routed through the GPIO matrix. The default pins match the ESP32-S3 FSPI bus (CLK 12, Q 13, D 11, HD 9, CS 10), and GPIO 14 is driven as WP. Pass `--spi-connection CLK,Q,D,HD,CS` to move the SPI signals and `--nand-wp-pin` to move WP. The SPI clock is XTAL divided by 2 (20 MHz).
 
 ## NAND Geometry
 
@@ -31,7 +31,7 @@ All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler sig
 
 ### `0xD5` — `SPI_NAND_ATTACH`
 
-**Request payload**: 4 × LE32: `hspi_arg` (SPI pin configuration, same encoding as `SPI_ATTACH`), `page_size` (2048 or 4096), `block_size` (a multiple of `page_size`), `block_count` (erase-all length).
+**Request payload**: 5 × LE32: `hspi_arg` (SPI pin configuration, same encoding as `SPI_ATTACH`), `page_size` (2048 or 4096), `block_size` (a multiple of `page_size`), `block_count` (erase-all length), and `wp_pin`. The legacy 4-word payload remains accepted and defaults `wp_pin` to GPIO14.
 
 **Response**: `value = status_reg<<24 | mfr_id<<16 | dev_id`, extra payload = 1-byte `prot_reg`. Status `RESPONSE_SUCCESS` or `RESPONSE_FAILED_SPI_OP`.
 
