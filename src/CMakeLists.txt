@@ -98,10 +98,19 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         )
 
         # Collect ROM LD scripts for this chip (symbol resolution only).
+        # ESP32-P4 ships two ROMs. Linking both defines the same symbols twice,
+        # so keep the set the base stub was linked with.
         file(GLOB _rom_ld_scripts
             "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.ld"
             "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.*.ld"
         )
+        if(ESP_TARGET STREQUAL "esp32p4")
+            if(ESP_TARGET_REV STREQUAL "rev1")
+                list(FILTER _rom_ld_scripts EXCLUDE REGEX "eco5")
+            else()
+                list(FILTER _rom_ld_scripts EXCLUDE REGEX "esp32p4\\.rom\\.(ld|libc\\.ld|libgcc\\.ld)$")
+            endif()
+        endif()
         set(_rom_ld_flags "")
         foreach(_s ${_rom_ld_scripts})
             list(APPEND _rom_ld_flags "-T${_s}")
@@ -133,12 +142,14 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
 
     # ---- Plugins available for this chip ------------------------------------
     set(_NAND_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/nand.c)
-    if(EXISTS "${_NAND_C}")
+    # The P4 bus file calls the ECO5 ROM. esp32p4-rev1 has different entry points.
+    if(EXISTS "${_NAND_C}" AND NOT TARGET_CHIP STREQUAL "esp32p4-rev1")
         stub_add_plugin(
             NAME          nand
             SOURCES
                 nand_plugin.c
                 ${_NAND_C}
+                ${ESP_STUB_LIB_DIR}/src/target/common/src/nand_proto.c
                 ${ESP_STUB_LIB_DIR}/src/md5.c
                 ${ESP_STUB_LIB_DIR}/src/target/common/src/md5.c
                 ${ESP_STUB_LIB_DIR}/src/rom_wrappers.c
