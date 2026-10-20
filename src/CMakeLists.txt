@@ -49,8 +49,6 @@ set(_plugin_json_args "")
 set(_plugin_elfs      "")
 
 if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
-    set(ESP_STUB_LIB_DIR ${CMAKE_SOURCE_DIR}/esp-stub-lib)
-
     # ---- Reusable macro: stub_add_plugin ------------------------------------
     # Usage:
     #   stub_add_plugin(
@@ -84,28 +82,14 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         )
         add_custom_target(${_plugin_target}-addrs DEPENDS ${_plugin_addrs_ld})
 
-        # Build the plugin from its own sources only.  Do NOT link esp-stub-lib:
-        # its -Wl,--whole-archive would drag every object from every static
-        # library into the tiny plugin binary.
+        # The plugin links its own copy of esp-stub-lib, which also brings the
+        # include paths and the ROM linker scripts of the base stub.  The library
+        # links with --whole-archive; --gc-sections and LTO keep only the code the
+        # handlers reach.
         add_executable(${_plugin_target} ${_PA_SOURCES})
 
-        target_include_directories(${_plugin_target} PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}
-            ${ESP_STUB_LIB_DIR}/include
-            ${ESP_STUB_LIB_DIR}/include/esp-stub-lib
-            ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/include
-            ${ESP_STUB_LIB_DIR}/src/target/base/include
-        )
-
-        # Collect ROM LD scripts for this chip (symbol resolution only).
-        file(GLOB _rom_ld_scripts
-            "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.ld"
-            "${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/ld/*.rom.*.ld"
-        )
-        set(_rom_ld_flags "")
-        foreach(_s ${_rom_ld_scripts})
-            list(APPEND _rom_ld_flags "-T${_s}")
-        endforeach()
+        target_include_directories(${_plugin_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_link_libraries(${_plugin_target} PRIVATE esp-stub-lib)
 
         # Links with the global --gc-sections; handlers reachable only through
         # the FPT are rooted by EXTERN() in the plugin linker script.
@@ -116,7 +100,6 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
             "-T${_plugin_addrs_ld}"
             "-T${_PA_LINKER_SCRIPT}"
             -Wl,-Map=${CMAKE_BINARY_DIR}/${_plugin_target}.map
-            ${_rom_ld_flags}
         )
 
         # Build after the base stub (its load address comes from the linked base
@@ -132,16 +115,12 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
     endmacro()
 
     # ---- Plugins available for this chip ------------------------------------
-    set(_NAND_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/nand.c)
-    if(EXISTS "${_NAND_C}")
+    set(NAND_PLUGIN_CHIPS esp32s3)
+
+    if(TARGET_CHIP IN_LIST NAND_PLUGIN_CHIPS)
         stub_add_plugin(
             NAME          nand
-            SOURCES
-                nand_plugin.c
-                ${_NAND_C}
-                ${ESP_STUB_LIB_DIR}/src/md5.c
-                ${ESP_STUB_LIB_DIR}/src/target/common/src/md5.c
-                ${ESP_STUB_LIB_DIR}/src/rom_wrappers.c
+            SOURCES       nand_plugin.c
             LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/nand_plugin.ld
         )
     else()

@@ -101,7 +101,8 @@ tools/compute_plugin_addrs.py
             │
             ▼
 stub-<chip>-<name>-plugin.elf
-  Linked with  -T <name>_plugin_addrs.ld  -T <name>_plugin.ld.
+  Linked with  -T <name>_plugin_addrs.ld  -T <name>_plugin.ld
+  and its own copy of esp-stub-lib.
   A LINK_DEPENDS on the fragment relinks the plugin whenever the
   base stub's size changes.
             │
@@ -189,25 +190,27 @@ ASSERT(SIZEOF(.data) == 0, "Plugin must not have initialized .data — use BSS i
 
 ### Step 4 — Add Target HAL in `esp-stub-lib`
 
-Implement target-specific functions (e.g., `src/target/esp32s3/src/spi_ram.c`) following the same pattern as `nand.c` and `spi_nand.c`.
+Implement target-specific functions (e.g., `src/target/esp32s3/src/spi_ram.c`) following the same pattern as `nand.c` and `spi_nand.c`, and add the file to the chip's library in esp-stub-lib.
+
+Every plugin links its own copy of esp-stub-lib, so the plugin gets the HAL, the include paths and the ROM linker scripts from the library. The copy does not share state with the base stub: library globals start zeroed in the plugin, whatever the base stub set at runtime.
 
 ### Step 5 — Update `src/CMakeLists.txt`
 
-Add detection of the new HAL file (analogous to `_NAND_C`), then call `stub_add_plugin()` with the plugin sources and linker script. The macro derives the target name, generates the `<name>_plugin_addrs.ld` fragment, wires the build-time dependencies, and stacks the plugin after any earlier ones — no addresses to specify by hand:
+List the chips that build the plugin, then call `stub_add_plugin()` with the plugin sources and linker script. The macro derives the target name, generates the `<name>_plugin_addrs.ld` fragment, wires the build-time dependencies, links esp-stub-lib, and stacks the plugin after any earlier ones — no addresses to specify by hand:
 
 ```cmake
-set(_SPI_RAM_C ${ESP_STUB_LIB_DIR}/src/target/${ESP_TARGET}/src/spi_ram.c)
+set(SPI_RAM_PLUGIN_CHIPS esp32s3)
 
-if(EXISTS "${_SPI_RAM_C}")
+if(TARGET_CHIP IN_LIST SPI_RAM_PLUGIN_CHIPS)
     stub_add_plugin(
         NAME          spi_ram
-        SOURCES
-            spi_ram_plugin.c
-            ${_SPI_RAM_C}
+        SOURCES       spi_ram_plugin.c
         LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/spi_ram_plugin.ld
     )
 endif()
 ```
+
+The list holds `TARGET_CHIP` values, so a chip revision such as `esp32p4-rev1` is listed on its own.
 
 Plugins load in the order `stub_add_plugin()` is called: the first is placed right after the base stub and each subsequent plugin stacks after the previous one.
 
