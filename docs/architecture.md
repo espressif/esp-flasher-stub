@@ -95,7 +95,7 @@ For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the p
 
 1. Build the base stub ELF.
 2. `tools/compute_plugin_addrs.py` reads the base ELF sizes and emits a linker fragment with the plugin load addresses.
-3. Build the plugin ELF, which pulls in that fragment via `-T` and relinks automatically whenever the base stub changes.
+3. Build the plugin ELF from its sources and esp-stub-lib. It pulls in that fragment via `-T` and relinks automatically whenever the base stub changes.
 4. `tools/elf2json.py` embeds the plugin into the JSON stub file.
 
 For the full guide including how to add a new plugin, see [Plugin System](plugin-system.md).
