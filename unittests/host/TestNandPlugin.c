@@ -29,6 +29,7 @@
 #include "mock_md5.h"
 #include "commands.h"
 #include "command_handler.h"
+#include "endian_utils.h"
 #include "plugin_table.h"
 #include "transport.h"
 
@@ -138,32 +139,105 @@ void tearDown(void)
 /* nand_plugin_attach                                                        */
 /* ======================================================================== */
 
-void test_attach_success(void)
+/* Attach payload: six signed pins, two reserved bytes, LE32 page_size, pages_per_block, block_count. */
+static void fill_attach(uint8_t data[SPI_NAND_ATTACH_SIZE], const stub_lib_nand_pins_t *pins,
+                        const stub_lib_nand_geometry_t *geometry)
 {
-    uint8_t data[SPI_NAND_ATTACH_SIZE] = {0x01, 0x02, 0x03, 0x04};
+    memset(data, 0, SPI_NAND_ATTACH_SIZE);
+    data[0] = (uint8_t)pins->clk;
+    data[1] = (uint8_t)pins->q;
+    data[2] = (uint8_t)pins->d;
+    data[3] = (uint8_t)pins->cs;
+    data[4] = (uint8_t)pins->hd;
+    data[5] = (uint8_t)pins->wp;
+    set_u32_to_le(data + 8, geometry->page_size);
+    set_u32_to_le(data + 12, geometry->pages_per_block);
+    set_u32_to_le(data + 16, geometry->block_count);
+}
+
+static void expect_nand_geometry(void)
+{
+    stub_lib_nand_get_page_size_IgnoreAndReturn(2048);
+    stub_lib_nand_get_pages_per_block_IgnoreAndReturn(64);
+    stub_lib_nand_get_block_size_IgnoreAndReturn(0x20000);
+    stub_lib_nand_get_block_count_IgnoreAndReturn(1024);
+}
+
+static int read_id_cb(uint8_t *manufacturer_id, uint16_t *device_id, int num_calls)
+{
+    (void)num_calls;
+    *manufacturer_id = 0x2C;
+    *device_id = 0x242C;
+    return 0;
+}
+
+static int read_register_cb(uint8_t reg, uint8_t *val, int num_calls)
+{
+    (void)num_calls;
+    *val = reg == NAND_REG_STATUS ? 0x20 : 0x00;
+    return 0;
+}
+
+void test_attach_reports_chip_geometry(void)
+{
+    const stub_lib_nand_pins_t pins = { .clk = 20, .q = 22, .d = 6, .cs = 21, .hd = 4, .wp = 5 };
+    const stub_lib_nand_geometry_t request = { 0 };
+    stub_lib_nand_geometry_t chip = { .page_size = 2048, .pages_per_block = 64, .block_count = 2048 };
+    uint8_t data[SPI_NAND_ATTACH_SIZE];
     struct command_response_data resp = {0};
 
-    stub_target_nand_attach_ExpectAndReturn(0x04030201, 0);
-    stub_target_nand_read_id_IgnoreAndReturn(0);
-    stub_target_nand_read_register_IgnoreAndReturn(0);
+    fill_attach(data, &pins, &request);
+    stub_lib_nand_attach_ExpectAndReturn(&pins, (stub_lib_nand_geometry_t *)&request, 0);
+    stub_lib_nand_attach_ReturnThruPtr_geometry(&chip);
+    stub_lib_nand_read_id_Stub(read_id_cb);
+    stub_lib_nand_read_register_Stub(read_register_cb);
 
     int rc = nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE, &resp);
 
     TEST_ASSERT_EQUAL_INT(RESPONSE_SUCCESS, rc);
-    TEST_ASSERT_EQUAL_UINT16(1, resp.data_size);
+    TEST_ASSERT_EQUAL_HEX32(0x202C242C, resp.value);
+    TEST_ASSERT_EQUAL_UINT16(16, resp.data_size);
+    TEST_ASSERT_EQUAL_HEX8(0x00, resp.data[0]);
+    TEST_ASSERT_EQUAL_UINT32(2048, get_le_to_u32(resp.data + 4));
+    TEST_ASSERT_EQUAL_UINT32(64, get_le_to_u32(resp.data + 8));
+    TEST_ASSERT_EQUAL_UINT32(2048, get_le_to_u32(resp.data + 12));
+}
+
+void test_attach_passes_default_pins_and_overrides(void)
+{
+    const stub_lib_nand_pins_t pins = {
+        .clk = STUB_LIB_NAND_PIN_DEFAULT, .q = STUB_LIB_NAND_PIN_DEFAULT, .d = STUB_LIB_NAND_PIN_DEFAULT,
+        .cs = STUB_LIB_NAND_PIN_DEFAULT, .hd = STUB_LIB_NAND_PIN_DEFAULT, .wp = STUB_LIB_NAND_PIN_DEFAULT,
+    };
+    stub_lib_nand_geometry_t request = { .page_size = 4096, .pages_per_block = 0, .block_count = 512 };
+    uint8_t data[SPI_NAND_ATTACH_SIZE];
+    struct command_response_data resp = {0};
+
+    fill_attach(data, &pins, &request);
+    TEST_ASSERT_EQUAL_HEX8(0xFF, data[0]);
+    stub_lib_nand_attach_ExpectAndReturn(&pins, &request, 0);
+    stub_lib_nand_read_id_IgnoreAndReturn(0);
+    stub_lib_nand_read_register_IgnoreAndReturn(0);
+
+    int rc = nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE, &resp);
+
+    TEST_ASSERT_EQUAL_INT(RESPONSE_SUCCESS, rc);
 }
 
 void test_attach_target_failure(void)
 {
-    uint8_t data[SPI_NAND_ATTACH_SIZE] = {0};
+    const stub_lib_nand_pins_t pins = { 0 };
+    stub_lib_nand_geometry_t request = { 0 };
+    uint8_t data[SPI_NAND_ATTACH_SIZE];
     struct command_response_data resp = {0};
 
-    stub_target_nand_attach_ExpectAndReturn(0, -1);
+    fill_attach(data, &pins, &request);
+    stub_lib_nand_attach_ExpectAndReturn(&pins, &request, NAND_ERR_GEOMETRY_UNKNOWN);
 
     int rc = nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE, &resp);
 
     TEST_ASSERT_EQUAL_INT(RESPONSE_FAILED_SPI_OP, rc);
-    TEST_ASSERT_EQUAL_UINT32((uint32_t) -1, resp.value);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)NAND_ERR_GEOMETRY_UNKNOWN, resp.value);
 }
 
 void test_attach_bad_size(void)
@@ -171,9 +245,10 @@ void test_attach_bad_size(void)
     uint8_t data[SPI_NAND_ATTACH_SIZE + 1] = {0};
     struct command_response_data resp = {0};
 
-    int rc = nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE + 1, &resp);
-
-    TEST_ASSERT_EQUAL_INT(RESPONSE_BAD_DATA_LEN, rc);
+    TEST_ASSERT_EQUAL_INT(RESPONSE_BAD_DATA_LEN,
+                          nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE + 1, &resp));
+    TEST_ASSERT_EQUAL_INT(RESPONSE_BAD_DATA_LEN,
+                          nand_plugin_attach(ESP_SPI_NAND_ATTACH, data, SPI_NAND_ATTACH_SIZE - 4, &resp));
 }
 
 /* ======================================================================== */
@@ -185,7 +260,7 @@ void test_read_bbm_success(void)
     uint8_t data[SPI_NAND_READ_BBM_SIZE] = {0x05, 0x00, 0x00, 0x00};
     struct command_response_data resp = {0};
 
-    stub_target_nand_read_bbm_IgnoreAndReturn(0);
+    stub_lib_nand_read_bbm_IgnoreAndReturn(0);
 
     int rc = nand_plugin_read_bbm(ESP_SPI_NAND_READ_BBM, data, SPI_NAND_READ_BBM_SIZE, &resp);
 
@@ -197,7 +272,7 @@ void test_read_bbm_target_failure(void)
     uint8_t data[SPI_NAND_READ_BBM_SIZE] = {0};
     struct command_response_data resp = {0};
 
-    stub_target_nand_read_bbm_IgnoreAndReturn(-1);
+    stub_lib_nand_read_bbm_IgnoreAndReturn(-1);
 
     int rc = nand_plugin_read_bbm(ESP_SPI_NAND_READ_BBM, data, SPI_NAND_READ_BBM_SIZE, &resp);
 
@@ -223,7 +298,7 @@ void test_write_bbm_success(void)
     uint8_t data[SPI_NAND_WRITE_BBM_SIZE] = {0x0A, 0x00, 0x00, 0x00, 0x01};
     struct command_response_data resp = {0};
 
-    stub_target_nand_write_bbm_ExpectAndReturn(10, 1, 0);
+    stub_lib_nand_write_bbm_ExpectAndReturn(10, true, 0);
 
     int rc = nand_plugin_write_bbm(ESP_SPI_NAND_WRITE_BBM, data, SPI_NAND_WRITE_BBM_SIZE, &resp);
 
@@ -235,7 +310,7 @@ void test_write_bbm_target_failure(void)
     uint8_t data[SPI_NAND_WRITE_BBM_SIZE] = {0};
     struct command_response_data resp = {0};
 
-    stub_target_nand_write_bbm_ExpectAndReturn(0, 0, -1);
+    stub_lib_nand_write_bbm_ExpectAndReturn(0, false, -1);
 
     int rc = nand_plugin_write_bbm(ESP_SPI_NAND_WRITE_BBM, data, SPI_NAND_WRITE_BBM_SIZE, &resp);
 
@@ -261,8 +336,8 @@ void test_read_page_debug_success(void)
     uint8_t data[SPI_NAND_READ_PAGE_DEBUG_SIZE] = {0x02, 0x00, 0x00, 0x00};
     struct command_response_data resp = {0};
 
-    stub_target_nand_get_page_size_ExpectAndReturn(2048);
-    stub_target_nand_read_page_IgnoreAndReturn(0);
+    stub_lib_nand_get_page_size_ExpectAndReturn(2048);
+    stub_lib_nand_read_page_IgnoreAndReturn(0);
 
     int rc = nand_plugin_read_page_debug(ESP_SPI_NAND_READ_PAGE_DEBUG, data,
                                          SPI_NAND_READ_PAGE_DEBUG_SIZE, &resp);
@@ -277,8 +352,8 @@ void test_read_page_debug_target_failure(void)
     uint8_t data[SPI_NAND_READ_PAGE_DEBUG_SIZE] = {0};
     struct command_response_data resp = {0};
 
-    stub_target_nand_get_page_size_ExpectAndReturn(2048);
-    stub_target_nand_read_page_IgnoreAndReturn(-1);
+    stub_lib_nand_get_page_size_ExpectAndReturn(2048);
+    stub_lib_nand_read_page_IgnoreAndReturn(-1);
 
     int rc = nand_plugin_read_page_debug(ESP_SPI_NAND_READ_PAGE_DEBUG, data,
                                          SPI_NAND_READ_PAGE_DEBUG_SIZE, &resp);
@@ -303,6 +378,7 @@ void test_read_page_debug_bad_size(void)
 
 void test_write_flash_begin_success(void)
 {
+    expect_nand_geometry();
     /* offset=0, total_size=4096, block_size=131072, packet_size=4096 */
     uint8_t data[SPI_NAND_WRITE_FLASH_BEGIN_SIZE] = {
         0x00, 0x00, 0x00, 0x00,   /* offset = 0 */
@@ -331,6 +407,7 @@ void test_write_flash_begin_bad_size(void)
 
 void test_write_flash_begin_unaligned_offset(void)
 {
+    expect_nand_geometry();
     /* offset=1 — not page-aligned */
     uint8_t data[SPI_NAND_WRITE_FLASH_BEGIN_SIZE] = {
         0x01, 0x00, 0x00, 0x00,   /* offset = 1 */
@@ -405,6 +482,7 @@ void test_write_flash_data_not_in_progress(void)
 
 void test_write_flash_data_success(void)
 {
+    expect_nand_geometry();
     /* 1. Call begin to set up write state: offset=0, total_size=0x1000 (>WFD_DATA_SIZE)
      *    so that writing WFD_DATA_SIZE bytes does NOT exhaust total_remaining,
      *    avoiding a page-flush (which would require additional mocks). */
@@ -471,8 +549,9 @@ void test_erase_flash_success(void)
 {
     struct command_response_data resp = {0};
 
+    expect_nand_geometry();
     /* Ignore all 1024 block erase calls */
-    stub_target_nand_erase_block_IgnoreAndReturn(0);
+    stub_lib_nand_erase_block_IgnoreAndReturn(0);
 
     int rc = nand_plugin_erase_flash(ESP_SPI_NAND_ERASE_FLASH, NULL, 0, &resp);
 
@@ -483,8 +562,9 @@ void test_erase_flash_spi_failure(void)
 {
     struct command_response_data resp = {0};
 
+    expect_nand_geometry();
     /* First erase call fails */
-    stub_target_nand_erase_block_ExpectAndReturn(0, -1);
+    stub_lib_nand_erase_block_ExpectAndReturn(0, -1);
 
     int rc = nand_plugin_erase_flash(ESP_SPI_NAND_ERASE_FLASH, NULL, 0, &resp);
 
@@ -507,6 +587,7 @@ void test_erase_region_bad_size(void)
 
 void test_erase_region_unaligned(void)
 {
+    expect_nand_geometry();
     /* offset=1 (not block-aligned) */
     uint8_t data[ERASE_REGION_SIZE] = {
         0x01, 0x00, 0x00, 0x00,   /* offset = 1 */
@@ -521,6 +602,7 @@ void test_erase_region_unaligned(void)
 
 void test_erase_region_success(void)
 {
+    expect_nand_geometry();
     /* Erase one block starting at offset 0 (block 0) */
     uint8_t data[ERASE_REGION_SIZE] = {
         0x00, 0x00, 0x00, 0x00,   /* offset = 0 */
@@ -529,7 +611,7 @@ void test_erase_region_success(void)
     struct command_response_data resp = {0};
 
     /* One block = 1 erase_block call with page_number=0 */
-    stub_target_nand_erase_block_ExpectAndReturn(0, 0);
+    stub_lib_nand_erase_block_ExpectAndReturn(0, 0);
 
     int rc = nand_plugin_erase_region(ESP_SPI_NAND_ERASE_REGION, data, ERASE_REGION_SIZE, &resp);
 
@@ -560,7 +642,7 @@ void test_read_flash_success(void)
         0x00, 0x00, 0x00, 0x00,   /* max_inflight (unused) */
     };
 
-    stub_target_nand_get_page_size_ExpectAndReturn(2048);
+    stub_lib_nand_get_page_size_IgnoreAndReturn(2048);
 
     struct command_response_data resp = {0};
 
@@ -584,7 +666,7 @@ void test_read_flash_success(void)
     stub_lib_md5_update_Ignore();
     stub_lib_md5_final_Ignore();
 
-    stub_target_nand_read_page_IgnoreAndReturn(0);
+    stub_lib_nand_read_page_IgnoreAndReturn(0);
 
     struct cmd_ctx fake_ctx = {
         .transport = &s_fake_transport,
@@ -627,6 +709,7 @@ void test_write_flash_end_bad_size(void)
 
 void test_write_flash_end_bytes_remaining(void)
 {
+    expect_nand_geometry();
     /* Begin with total_size=0x1000; call end without any data — total_remaining != 0 */
     uint8_t begin_data[SPI_NAND_WRITE_FLASH_BEGIN_SIZE] = {
         0x00, 0x00, 0x00, 0x00,   /* offset = 0 */
@@ -648,7 +731,8 @@ void test_write_flash_end_bytes_remaining(void)
 
 void test_write_flash_end_success(void)
 {
-    /* Begin with total_size=NAND_PAGE_SIZE (2048) — one full page */
+    expect_nand_geometry();
+    /* Begin with total_size=2048 — one full page */
     uint8_t begin_data[SPI_NAND_WRITE_FLASH_BEGIN_SIZE] = {
         0x00, 0x00, 0x00, 0x00,   /* offset = 0 */
         0x00, 0x08, 0x00, 0x00,   /* total_size = 2048 */
@@ -688,8 +772,8 @@ void test_write_flash_end_success(void)
            flash_bytes, 2048);
 
     /* Full page → triggers erase_block + write_page on flush */
-    stub_target_nand_erase_block_ExpectAndReturn(0, 0);
-    stub_target_nand_write_page_IgnoreAndReturn(0);
+    stub_lib_nand_erase_block_ExpectAndReturn(0, 0);
+    stub_lib_nand_write_page_IgnoreAndReturn(0);
 
     memset(&resp, 0, sizeof(resp));
     int rc = nand_plugin_write_flash_data(ESP_SPI_NAND_WRITE_FLASH_DATA,
@@ -708,6 +792,7 @@ void test_write_flash_end_success(void)
 
 void test_write_flash_end_final_partial_flush(void)
 {
+    expect_nand_geometry();
     /* Begin with total_size=16 (less than one page) */
     uint8_t begin_data[SPI_NAND_WRITE_FLASH_BEGIN_SIZE] = {
         0x00, 0x00, 0x00, 0x00,   /* offset = 0 */
@@ -750,8 +835,8 @@ void test_write_flash_end_final_partial_flush(void)
     TEST_ASSERT_EQUAL_INT(RESPONSE_SUCCESS, rc);
 
     /* END — page_buf_filled=16 → must pad and flush */
-    stub_target_nand_erase_block_ExpectAndReturn(0, 0);
-    stub_target_nand_write_page_IgnoreAndReturn(0);
+    stub_lib_nand_erase_block_ExpectAndReturn(0, 0);
+    stub_lib_nand_write_page_IgnoreAndReturn(0);
 
     uint8_t end_data[SPI_NAND_WRITE_FLASH_END_SIZE] = {0x00, 0x00, 0x00, 0x00};
     memset(&resp, 0, sizeof(resp));
@@ -769,8 +854,9 @@ void test_erase_flash_erase_fail(void)
 {
     struct command_response_data resp = {0};
 
+    expect_nand_geometry();
     /* First block erase call returns NAND_ERR_ERASE_FAILED (-2) */
-    stub_target_nand_erase_block_ExpectAndReturn(0, -2);  /* NAND_ERR_ERASE_FAILED */
+    stub_lib_nand_erase_block_ExpectAndReturn(0, -2);  /* NAND_ERR_ERASE_FAILED */
 
     int rc = nand_plugin_erase_flash(ESP_SPI_NAND_ERASE_FLASH, NULL, 0, &resp);
 
@@ -783,6 +869,7 @@ void test_erase_flash_erase_fail(void)
 
 void test_erase_region_erase_fail(void)
 {
+    expect_nand_geometry();
     /* Erase one block starting at offset 0 */
     uint8_t data[ERASE_REGION_SIZE] = {
         0x00, 0x00, 0x00, 0x00,   /* offset = 0 */
@@ -791,7 +878,7 @@ void test_erase_region_erase_fail(void)
     struct command_response_data resp = {0};
 
     /* Erase call returns NAND_ERR_ERASE_FAILED (-2) */
-    stub_target_nand_erase_block_ExpectAndReturn(0, -2);  /* NAND_ERR_ERASE_FAILED */
+    stub_lib_nand_erase_block_ExpectAndReturn(0, -2);  /* NAND_ERR_ERASE_FAILED */
 
     int rc = nand_plugin_erase_region(ESP_SPI_NAND_ERASE_REGION, data, ERASE_REGION_SIZE, &resp);
 
@@ -814,6 +901,7 @@ void test_erase_region_erase_fail(void)
  */
 static int _run_flush_test(int erase_ret, int write_ret)
 {
+    expect_nand_geometry();
     /* Begin: offset=0, total_size=2048 (one page) */
     uint8_t begin_data[SPI_NAND_WRITE_FLASH_BEGIN_SIZE] = {
         0x00, 0x00, 0x00, 0x00,   /* offset = 0 */
@@ -854,11 +942,11 @@ static int _run_flush_test(int erase_ret, int write_ret)
            flash_bytes, 2048);
 
     /* Set up mocks */
-    stub_target_nand_erase_block_ExpectAndReturn(0, erase_ret);
+    stub_lib_nand_erase_block_ExpectAndReturn(0, erase_ret);
     if (erase_ret == 0) {
         /* IgnoreAndReturn skips per-arg checks (IgnoreArg_* is not generated for
          * this function by CMock). The test only cares about the return code. */
-        stub_target_nand_write_page_IgnoreAndReturn(write_ret);
+        stub_lib_nand_write_page_IgnoreAndReturn(write_ret);
     }
 
     memset(&resp, 0, sizeof(resp));
@@ -887,7 +975,8 @@ int main(void)
 {
     UnityBegin(__FILE__);
 
-    RUN_TEST(test_attach_success);
+    RUN_TEST(test_attach_reports_chip_geometry);
+    RUN_TEST(test_attach_passes_default_pins_and_overrides);
     RUN_TEST(test_attach_target_failure);
     RUN_TEST(test_attach_bad_size);
 

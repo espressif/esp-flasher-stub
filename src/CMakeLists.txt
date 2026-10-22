@@ -115,7 +115,7 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
     endmacro()
 
     # ---- Plugins available for this chip ------------------------------------
-    set(NAND_PLUGIN_CHIPS esp32s3)
+    set(NAND_PLUGIN_CHIPS esp32s3 esp32p4)
 
     if(TARGET_CHIP IN_LIST NAND_PLUGIN_CHIPS)
         stub_add_plugin(
