@@ -1,27 +1,23 @@
 # NAND Flash Support
 
 > [!WARNING]
-> NAND flash support is in **preview** state. It has been tested only with the W25N01GV chip on ESP32-S3. The API and behavior may change in future releases.
+> NAND flash support is in **preview** state. It has been tested with the W25N01GV on ESP32-S3 and the MT29F2G01ABAGDWB on ESP32-P4. The API and behavior may change in future releases.
 
 ## Supported Hardware
 
 ### NAND Chips
 
-The W25N01GVxxxG/T/R family is supported (1 Gbit, SPI NAND).
+The W25N01GVxxxG/T/R family (1 Gbit) and Micron MT29F2G01ABAGDWB (2 Gbit) are supported.
 
 ### Supported MCUs
 
-**ESP32-S3 only** (for now). Support for additional chips is planned. ESP32 and ESP8266 do not support the plugin system and will not be supported.
+**ESP32-S3 and ESP32-P4** (`TARGET_CHIP=esp32p4`, the ECO5 ROM). `esp32p4-rev1` is not included: its ROM GPIO entry points differ. ESP32 and ESP8266 do not support the plugin system and will not be supported.
 
-## NAND Geometry (W25N01GV)
+On ESP32-P4 every pin is routed through the GPIO matrix. The default pins match the ESP32-S3 FSPI bus (CLK 12, Q 13, D 11, HD 9, CS 10), and GPIO 14 is driven as WP. Pass `--spi-connection CLK,Q,D,HD,CS` to move the SPI signals and `--nand-wp-pin` to move WP. The SPI clock is XTAL divided by 2 (20 MHz).
 
-| Parameter | Value |
-|---|---|
-| Page size | 2048 bytes |
-| Pages per block | 64 |
-| Block size | 128 KB (131072 bytes) |
-| Total blocks | 1024 |
-| Total capacity | 1 Gbit (128 MB) |
+## NAND Geometry
+
+At attach, the stub reads the page size, pages per block, and block count from the chip's parameter page. The parameter page is page 1 of the OTP area and uses the ONFI layout. The stub checks the signature and the CRC and tries three copies. `SPI_NAND_ATTACH` can override each value; a non-zero value replaces the parameter page value. If a value is zero and the chip has no valid parameter page, attach fails with `NAND_ERR_GEOMETRY_UNKNOWN` and the host must supply it. Page size is 2048 or 4096 bytes. The attach response returns the geometry in use.
 
 ## Protocol Overview
 
@@ -35,9 +31,17 @@ All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler sig
 
 ### `0xD5` — `SPI_NAND_ATTACH`
 
-**Request payload**: 4-byte LE `hspi_arg` (SPI pin configuration, same encoding as `SPI_ATTACH`).
+**Request payload** (20 bytes):
 
-**Response**: `value = status_reg<<24 | mfr_id<<16 | dev_id`, extra payload = 1-byte `prot_reg`. Status `RESPONSE_SUCCESS` or `RESPONSE_FAILED_SPI_OP`.
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 6 × int8 | GPIO numbers of CLK, Q, D, CS, HD and WP. `-1` selects the chip's default pin. |
+| 6 | 2 | Reserved, zero |
+| 8 | LE32 | `page_size`: 2048 or 4096, or 0 to read it from the chip |
+| 12 | LE32 | `pages_per_block`, or 0 to read it from the chip |
+| 16 | LE32 | `block_count`, or 0 to read it from the chip |
+
+**Response**: `value = status_reg<<24 | mfr_id<<16 | dev_id`, extra payload (16 bytes) = `prot_reg`, 3 reserved bytes, then LE32 `page_size`, `pages_per_block` and `block_count` in use. Status `RESPONSE_SUCCESS` or `RESPONSE_FAILED_SPI_OP`. On failure, `value` holds the negative `NAND_ERR_*` code from `esp-stub-lib/nand.h`.
 
 ---
 
@@ -103,13 +107,13 @@ All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler sig
 
 **Response**: `RESPONSE_SUCCESS` or `RESPONSE_FAILED_SPI_OP` (first failing block).
 
-Erases all 1024 blocks sequentially.
+Erases `block_count` blocks from `SPI_NAND_ATTACH`, sequentially.
 
 ---
 
 ### `0xDC` — `SPI_NAND_ERASE_REGION`
 
-**Request payload**: 2 × LE32: `offset`, `erase_size`. Both must be block-aligned (multiples of 128 KB).
+**Request payload**: 2 × LE32: `offset`, `erase_size`. Both must be multiples of the block size from `SPI_NAND_ATTACH`.
 
 **Response**: `RESPONSE_SUCCESS`, `RESPONSE_BAD_DATA_LEN` (misalignment), or `RESPONSE_FAILED_SPI_OP`.
 

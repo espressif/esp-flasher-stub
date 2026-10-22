@@ -127,7 +127,7 @@ The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plug
 
 ## Chip Support
 
-Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT built in to the base stub. Currently, ESP32-S3 is the only chip that ships with a plugin (the NAND plugin). Support for additional chips is planned.
+Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT built in to the base stub. The NAND plugin is built for ESP32-S3 and ESP32-P4.
 
 ## Adding a New Plugin
 
@@ -190,7 +190,7 @@ ASSERT(SIZEOF(.data) == 0, "Plugin must not have initialized .data — use BSS i
 
 ### Step 4 — Add Target HAL in `esp-stub-lib`
 
-Implement target-specific functions (e.g., `src/target/esp32s3/src/spi_ram.c`) following the same pattern as `nand.c` and `spi_nand.c`, and add the file to the chip's library in esp-stub-lib.
+Follow the NAND layering: the chip-independent logic goes in `src/nand.c` (`stub_lib_nand_*`), the bus interface in `src/target/base/include/target/nand.h`, weak "not supported" defaults in `src/target/common/src/nand.c`, and the bus code in `src/target/common/src/nand_gpspi.c` and `src/target/<chip>/src/nand.c`. Add the files to the libraries in esp-stub-lib.
 
 Every plugin links its own copy of esp-stub-lib, so the plugin gets the HAL, the include paths and the ROM linker scripts from the library. The copy does not share state with the base stub: library globals start zeroed in the plugin, whatever the base stub set at runtime.
 
