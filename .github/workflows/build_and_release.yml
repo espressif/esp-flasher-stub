@@ -44,6 +44,7 @@ jobs:
         run: |
           source ./tools/export_toolchains.sh
           ./tools/build_all_chips.sh
+          ./tools/build_all_chips.sh --spi
 
       - name: Upload stub JSONs
         uses: actions/upload-artifact@v7

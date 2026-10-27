@@ -64,7 +64,7 @@ Update the documents that describe what you change:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| Build and release | Push, pull request, manual | Builds the stubs for all chips and the npm package. Makes the size report on pull requests and a draft release on tags. |
+| Build and release | Push, pull request, manual | Builds the regular stubs for all chips, checks that SPI-enabled stubs build for supported chips and builds the npm package. Makes the regular-stub size report on pull requests and a draft release containing regular stubs on tags. |
 | Post stub size report | Build and release finished for a pull request | Posts the size report as a comment on the pull request, also for pull requests from forks |
 | Host Tests | Push | Runs the host tests |
 | DangerJS Pull Request linter | Pull request | Checks the pull request against the DangerJS rules |
@@ -92,6 +92,7 @@ Open a pull request for the branch. The Build and release workflow creates a dra
 
 | Script | Description |
 |---|---|
+| `tools/build_all_chips.sh` | Builds all regular stubs. With `--spi`, builds `<target>-spi.json` for the supported chips in `spi-build-*` directories |
 | `tools/install_all_chips.sh` | Copies the JSON files from the `build-*` directories to the directory set in `ESPTOOL_STUBS_DIR`, for example `esptool/targets/stub_flasher/2` in an esptool checkout |
 | `tools/compare_sizes.py` | Compares the stub segment sizes of two builds for the size report on pull requests |
 | `tools/generate_npm_package.mjs` | Assembles the npm package from the stub JSON files |
