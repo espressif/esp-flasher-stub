@@ -1,3 +1,14 @@
+## v1.5.0 (2026-11-04)
+
+### ✨ New Features
+
+- **spi**: Add support for SPI transport *(Vojtech Piroch - 386dbe7)*
+
+### 🔧 Code Refactoring
+
+- **plugin**: link esp-stub-lib into plugins *(Jaroslav Burian - 3a0fc02)*
+
+
 ## v1.4.1 (2026-10-14)
 
 ### 🐛 Bug Fixes
