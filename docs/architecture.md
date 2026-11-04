@@ -2,22 +2,22 @@
 
 ## Overview
 
-The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) through a transport abstraction to perform flash programming and other operations. UART, USB-Serial-JTAG, and USB-OTG carry [SLIP](https://datatracker.ietf.org/doc/html/rfc1055)-framed commands; SDIO carries raw command frames.
+The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) through a transport abstraction to perform flash programming and other operations. UART, USB-Serial-JTAG, and USB-OTG carry [SLIP](https://datatracker.ietf.org/doc/html/rfc1055)-framed commands; SDIO and SPI carry raw command frames. SPI is optional and is built only with `STUB_SPI_ENABLED` (see [Build System](#build-system)).
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Host (esptool)                                         │
-│  Sends command frames over UART / USB / SDIO            │
+│  Host (esptool / esp-serial-flasher)                    │
+│  Sends command frames over UART / USB / SDIO / SPI      │
 └───────────────────────┬─────────────────────────────────┘
                         │
-            UART / USB-Serial-JTAG / USB-OTG / SDIO
+         UART / USB-Serial-JTAG / USB-OTG / SDIO / SPI
                         │
 ┌───────────────────────▼─────────────────────────────────┐
 │  ESP Flasher Stub (runs in chip RAM)                    │
 │                                                         │
 │  ┌──────────┐  ┌───────────────┐  ┌──────────────────┐  │
 │  │Transport │→ │ Frame Buffer  │→ │ Command Handler  │  │
-│  │  Layer   │  │ + SLIP/SDIO   │  │   & Dispatch     │  │
+│  │  Layer   │  │ + SLIP/raw    │  │   & Dispatch     │  │
 │  └──────────┘  └───────────────┘  └────────┬─────────┘  │
 │                                            │            │
 │                                   ┌────────▼─────────┐  │
@@ -70,6 +70,10 @@ The build requires the `-DTARGET_CHIP=<chip>` parameter. The CMake configuration
 4. Links with a chip-specific linker script from `src/ld/`.
 5. Applies target-local size workarounds where needed, such as `-fdata-sections` only for ESP8266 `miniz_obj`.
 6. Runs `tools/elf2json.py` as a post-build step to generate the JSON stub file.
+
+The optional `-DSTUB_SPI_ENABLED=ON` parameter builds in the SPI transport by defining `STUB_SPI_ENABLED` for the firmware sources and names the output `<target>-spi.json`. It is off by default: only esp-serial-flasher uses SPI, and the transport adds about 1.1–1.3 KB to the stub. The SPI slave driver in esp-stub-lib exists for ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3 and ESP32-P4. On other chips the transport is never detected.
+
+SPI slave-to-host frames have a maximum size of 4092 bytes. The transmit path uses one DMA descriptor with a 12-bit size field and a 4-byte-aligned data buffer. The receive path is not subject to this per-frame limit because it chains multiple DMA descriptors for host-to-stub frames.
 
 ## Linker Scripts
 

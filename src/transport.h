@@ -22,6 +22,9 @@ enum stub_transport_type {
     TRANSPORT_USB_OTG = 1,
     TRANSPORT_USB_SERIAL_JTAG = 2,
     TRANSPORT_SDIO = 3,
+#ifdef STUB_SPI_ENABLED
+    TRANSPORT_SPI = 4,
+#endif
 };
 
 /**
@@ -54,6 +57,9 @@ struct stub_transport_ops {
     void (*recv_release)(void);
 
     bool (*send_frame)(const void *data, size_t len);
+
+    /** Maximum frame length accepted by send_frame(). */
+    size_t max_tx_frame_size;
 };
 
 /**

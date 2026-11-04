@@ -23,7 +23,7 @@ This project has replaced the deprecated [legacy flasher stub of esptool](https:
 
 ## Obtaining Pre-built Stub JSON Files
 
-The pre-built stub JSON files are available from two sources:
+The pre-built regular stub JSON files are available from two sources:
 
 - **GitHub Releases** – Download the JSON files for all supported chips from the [releases page](https://github.com/espressif/esp-flasher-stub/releases).
 - **npm** – Install the [`esp-flasher-stub`](https://www.npmjs.com/package/esp-flasher-stub) package for use in JavaScript/TypeScript projects.
@@ -94,6 +94,21 @@ ninja -C build
 ./tools/build_all_chips.sh
 ```
 
+### Build with the SPI Transport
+
+The SPI transport lets [esp-serial-flasher](https://github.com/espressif/esp-serial-flasher) talk to the stub over the SPI download interface. The transport is off by default because it adds about 1.1–1.3 KB to the stub. To build it in, set the `STUB_SPI_ENABLED` option:
+
+```sh
+cmake . -B build -G Ninja -DTARGET_CHIP=esp32s3 -DSTUB_SPI_ENABLED=ON
+ninja -C build
+```
+
+To build SPI-enabled stubs for every chip that supports the SPI slave transport as `spi-build-<target>/<target>-spi.json`:
+
+```sh
+./tools/build_all_chips.sh --spi
+```
+
 ## How to Use with Esptool
 
 1. Install the latest esptool from the `master` branch as described in [Testing the Latest Code](https://docs.espressif.com/projects/esptool/en/latest/esp32/contributing.html#testing-the-latest-code).
@@ -108,7 +123,7 @@ ninja -C build
 
 ## How It Works
 
-The flasher stub operates through upload, initialization, handshake (`OHAI` over the selected transport), and a command loop that handles flash, memory, register, and SPI operations. UART and USB transports use SLIP framing; SDIO uses raw command frames. For details, see the [Architecture](docs/architecture.md) document.
+The flasher stub operates through upload, initialization, handshake (`OHAI` over the selected transport), and a command loop that handles flash, memory, register, and SPI operations. UART and USB transports use SLIP framing; SDIO and SPI use raw command frames. For details, see the [Architecture](docs/architecture.md) document.
 
 ## Contributing
 

@@ -26,14 +26,36 @@ ALL_CHIPS=(
     "esp8266"
 )
 
-for chip in "${ALL_CHIPS[@]}"; do
+SPI_CHIPS=(
+    "esp32c2"
+    "esp32c3"
+    "esp32p4-rev1"
+    "esp32p4"
+    "esp32s2"
+    "esp32s3"
+)
+
+CHIPS=("${ALL_CHIPS[@]}")
+BUILD_DIR_PREFIX="build-"
+CMAKE_ARGS=()
+
+for arg in "$@"; do
+    if [[ "$arg" == "--spi" ]]; then
+        CHIPS=("${SPI_CHIPS[@]}")
+        BUILD_DIR_PREFIX="spi-build-"
+        CMAKE_ARGS+=("-DSTUB_SPI_ENABLED=ON")
+        break
+    fi
+done
+
+for chip in "${CHIPS[@]}"; do
     echo "========================================="
     echo "Building for $chip"
     echo "========================================="
-    DIR=build-$chip
+    DIR="${BUILD_DIR_PREFIX}${chip}"
 
     # Single pass: CMake wires the base stub, plugin address computation, plugin
     # ELF(s), and JSON as one dependency graph, so a plain ninja builds it all.
-    cmake -G Ninja -B "$DIR" -DTARGET_CHIP=$chip --fresh -Wno-dev
+    cmake -G Ninja -B "$DIR" -DTARGET_CHIP="$chip" "${CMAKE_ARGS[@]}" --fresh -Wno-dev
     ninja -C "$DIR"
 done
