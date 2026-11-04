@@ -42,7 +42,7 @@ add_custom_command(
     DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/rom_wrappers.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/uart.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/src/target/base/include/target/nand.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/nand.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../../src/slip.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/include/esp-stub-lib/md5.h
         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_mocks.sh
@@ -159,6 +159,27 @@ set_tests_properties(TestNandPlugin PROPERTIES
 )
 
 message(STATUS "Added host test: TestNandPlugin (timeout: 10s)")
+
+# TestNandLib — tests esp-stub-lib's NAND logic (src/nand.c) against a fake SPI NAND
+# chip that replaces the target bus layer.
+add_executable(TestNandLib
+    TestNandLib.c
+    ../../esp-stub-lib/src/nand.c
+    ${UNITY_SOURCES}
+)
+
+target_include_directories(TestNandLib PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../esp-stub-lib/src/target/base/include
+    ${UNITY_ROOT}/src
+)
+
+add_test(NAME TestNandLib COMMAND TestNandLib)
+set_tests_properties(TestNandLib PROPERTIES
+    TIMEOUT 10
+    LABELS "host_test;unit_test"
+)
+
+message(STATUS "Added host test: TestNandLib (timeout: 10s)")
 
 # TestPluginFPT — tests plugin Function Pointer Table dispatch.
 # Verifies that unpatched slots return RESPONSE_CMD_NOT_IMPLEMENTED and that

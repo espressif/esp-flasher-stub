@@ -13,18 +13,40 @@
 #include <stdbool.h>
 #include <esp-stub-lib/bit_utils.h>
 #include <esp-stub-lib/md5.h>
-#include <target/nand.h>
+#include <esp-stub-lib/nand.h>
 #include "commands.h"
 #include "command_handler.h"
 #include "endian_utils.h"
 #include "plugin_table.h"
 #include "transport.h"
 
-/* ---- NAND geometry constants ----------------------------------------------- */
-#define NAND_PAGE_SIZE 2048
-#define NAND_PAGES_PER_BLOCK 64
-#define NAND_BLOCK_SIZE (NAND_PAGE_SIZE * NAND_PAGES_PER_BLOCK)
-#define NAND_BLOCK_COUNT 1024
+/* Largest page the plugin buffer can hold. The attach command selects 2048 or 4096.
+ * Read, write, and the debug read share one buffer; they do not run together.
+ * A streamed read packet stays within one 4 KB sector, which is what esptool sends. */
+#define NAND_PAGE_SIZE_MAX 4096
+#define NAND_PACKET_SIZE_MAX 4096
+
+static uint8_t s_nand_page_buf[NAND_PAGE_SIZE_MAX] __attribute__((aligned(4)));
+
+static uint32_t nand_page_size(void)
+{
+    return stub_lib_nand_get_page_size();
+}
+
+static uint32_t nand_pages_per_block(void)
+{
+    return stub_lib_nand_get_pages_per_block();
+}
+
+static uint32_t nand_block_size(void)
+{
+    return stub_lib_nand_get_block_size();
+}
+
+/* SPI_NAND_ATTACH request: six signed pin bytes, two reserved bytes, then the geometry. */
+#define NAND_ATTACH_GEOMETRY_OFFSET 8
+/* SPI_NAND_ATTACH response data: prot_reg, three reserved bytes, then the geometry. */
+#define NAND_ATTACH_RESP_SIZE 16
 
 /* MD5 digest size in bytes */
 #define MD5_DIGEST_SIZE 16
@@ -66,7 +88,6 @@ static const uint32_t MAX_UNACKED_PACKETS = 1;
 static struct {
     uint32_t offset;
     uint32_t total_remaining;
-    uint8_t page_buf[NAND_PAGE_SIZE] __attribute__((aligned(4)));
     uint32_t page_buf_filled;
     bool in_progress;
 } s_nand_write_state;
@@ -87,7 +108,7 @@ static struct {
 /* ---- Internal helpers ------------------------------------------------------ */
 
 /*
- * nand_err_to_response — map a stub_target_nand_* return code to a response code.
+ * nand_err_to_response — map a stub_lib_nand_* return code to a response code.
  *
  * NAND_ERR_PROGRAM_FAILED / NAND_ERR_ERASE_FAILED are chip-level signals: the
  * W25N01GV app-note recommends marking the block bad and moving on. We deliberately
@@ -113,18 +134,23 @@ static int nand_err_to_response(int err)
 
 static int s_nand_write_flush_page(void)
 {
-    uint32_t page_number = s_nand_write_state.offset / NAND_PAGE_SIZE;
-    if (page_number % NAND_PAGES_PER_BLOCK == 0) {
-        int ret = stub_target_nand_erase_block(page_number);
+    uint32_t page_size = nand_page_size();
+    uint32_t pages_per_block = nand_pages_per_block();
+    if (page_size == 0 || pages_per_block == 0) {
+        return RESPONSE_FAILED_SPI_OP;
+    }
+    uint32_t page_number = s_nand_write_state.offset / page_size;
+    if (page_number % pages_per_block == 0) {
+        int ret = stub_lib_nand_erase_block(page_number);
         if (ret != 0) {
             return nand_err_to_response(ret);
         }
     }
-    int ret = stub_target_nand_write_page(page_number, s_nand_write_state.page_buf, NAND_PAGE_SIZE);
+    int ret = stub_lib_nand_write_page(page_number, s_nand_page_buf, page_size);
     if (ret != 0) {
         return nand_err_to_response(ret);
     }
-    s_nand_write_state.offset += NAND_PAGE_SIZE;
+    s_nand_write_state.offset += page_size;
     s_nand_write_state.page_buf_filled = 0;
     return RESPONSE_SUCCESS;
 }
@@ -142,7 +168,7 @@ static int nand_fill_send_buf(uint8_t *send_buf, uint8_t *page_buf,
         uint32_t needed = actual_read_size - bytes_filled;
         uint32_t chunk = MIN(avail, needed);
 
-        if (stub_target_nand_read_page(page_number, page_buf, page_size) != 0) {
+        if (stub_lib_nand_read_page(page_number, page_buf, page_size) != 0) {
             return -1;
         }
         memcpy(send_buf + bytes_filled, page_buf + page_offset, chunk);
@@ -172,11 +198,9 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
     uint32_t packet_size = s_nand_read_state.packet_size;
 
     /* Reuse static buffers in plugin BSS — saves stack */
-    static uint8_t page_buf[NAND_PAGE_SIZE] __attribute__((aligned(4)));
-    /* send_buf is sized for worst-case packet_size the host may request
-     * (NAND_PAGE_SIZE * 2).  The guard in nand_plugin_read_flash enforces
-     * this bound before we are called. */
-    static uint8_t send_buf[NAND_PAGE_SIZE * 2] __attribute__((aligned(4)));
+    /* send_buf is sized for NAND_PACKET_SIZE_MAX. The guard in
+     * nand_plugin_read_flash enforces this bound before we are called. */
+    static uint8_t send_buf[NAND_PACKET_SIZE_MAX] __attribute__((aligned(4)));
 
     /* Release the READ_FLASH command frame so the buffer can receive ACKs */
     ctx->transport->recv_release();
@@ -220,7 +244,7 @@ static int s_nand_read_flash_post_process(const struct cmd_ctx *ctx)
             }
 
             if (!read_failed) {
-                if (nand_fill_send_buf(send_buf, page_buf, NAND_PAGE_SIZE,
+                if (nand_fill_send_buf(send_buf, s_nand_page_buf, nand_page_size(),
                                        &current_offset, actual_read_size) != 0) {
                     read_failed = true;
                 }
@@ -259,8 +283,21 @@ int nand_plugin_attach(uint8_t command, const uint8_t *data, uint32_t len, struc
         return RESPONSE_BAD_DATA_LEN;
     }
 
-    uint32_t hspi_arg = get_le_to_u32(data);
-    int result = stub_target_nand_attach(hspi_arg);
+    stub_lib_nand_pins_t pins = {
+        .clk = (int8_t)data[0],
+        .q = (int8_t)data[1],
+        .d = (int8_t)data[2],
+        .cs = (int8_t)data[3],
+        .hd = (int8_t)data[4],
+        .wp = (int8_t)data[5],
+    };
+    const uint8_t *geometry_data = data + NAND_ATTACH_GEOMETRY_OFFSET;
+    stub_lib_nand_geometry_t geometry = {
+        .page_size = get_le_to_u32(geometry_data),
+        .pages_per_block = get_le_to_u32(geometry_data + 4),
+        .block_count = get_le_to_u32(geometry_data + 8),
+    };
+    int result = stub_lib_nand_attach(&pins, &geometry);
     if (result != 0) {
         resp->value = (uint32_t)result;
         return RESPONSE_FAILED_SPI_OP;
@@ -268,16 +305,20 @@ int nand_plugin_attach(uint8_t command, const uint8_t *data, uint32_t len, struc
 
     uint8_t mfr_id = 0, status_reg = 0, prot_reg = 0;
     uint16_t dev_id = 0;
-    stub_target_nand_read_id(&mfr_id, &dev_id);
-    stub_target_nand_read_register(NAND_REG_STATUS, &status_reg);
-    stub_target_nand_read_register(NAND_REG_PROTECT, &prot_reg);
+    stub_lib_nand_read_id(&mfr_id, &dev_id);
+    stub_lib_nand_read_register(NAND_REG_STATUS, &status_reg);
+    stub_lib_nand_read_register(NAND_REG_PROTECT, &prot_reg);
 
     /* Pack: status_reg[31:24] | mfr_id[23:16] | dev_id[15:0] */
     resp->value = ((uint32_t)status_reg << 24)
                   | ((uint32_t)mfr_id << 16)
                   | (uint32_t)dev_id;
+    memset(resp->data, 0, NAND_ATTACH_RESP_SIZE);
     resp->data[0] = prot_reg;
-    resp->data_size = 1;
+    set_u32_to_le(resp->data + 4, geometry.page_size);
+    set_u32_to_le(resp->data + 8, geometry.pages_per_block);
+    set_u32_to_le(resp->data + 12, geometry.block_count);
+    resp->data_size = NAND_ATTACH_RESP_SIZE;
     return RESPONSE_SUCCESS;
 }
 
@@ -290,7 +331,7 @@ int nand_plugin_read_bbm(uint8_t command, const uint8_t *data, uint32_t len, str
 
     uint32_t page_number = get_le_to_u32(data);
     uint8_t spare[4] = {0};
-    if (stub_target_nand_read_bbm(page_number, spare) != 0) {
+    if (stub_lib_nand_read_bbm(page_number, spare) != 0) {
         return RESPONSE_FAILED_SPI_OP;
     }
 
@@ -307,8 +348,8 @@ int nand_plugin_write_bbm(uint8_t command, const uint8_t *data, uint32_t len, st
     }
 
     uint32_t page_number = get_le_to_u32(data);
-    uint8_t is_bad = data[WRITE_BBM_IS_BAD_OFFSET];
-    if (stub_target_nand_write_bbm(page_number, is_bad) != 0) {
+    bool is_bad = data[WRITE_BBM_IS_BAD_OFFSET] != 0;
+    if (stub_lib_nand_write_bbm(page_number, is_bad) != 0) {
         return RESPONSE_FAILED_SPI_OP;
     }
     return RESPONSE_SUCCESS;
@@ -336,15 +377,15 @@ int nand_plugin_read_flash(uint8_t command, const uint8_t *data, uint32_t len, s
     ptr += sizeof(uint32_t);
     uint32_t packet_size = get_le_to_u32(ptr);
 
-    uint32_t page_size = stub_target_nand_get_page_size();
-    if (page_size == 0 || page_size != NAND_PAGE_SIZE) {
+    uint32_t page_size = nand_page_size();
+    if (page_size == 0 || page_size > NAND_PAGE_SIZE_MAX) {
         return RESPONSE_FAILED_SPI_OP;
     }
 
-    /* send_buf in the post-process is sized for NAND_PAGE_SIZE * 2, and
+    /* send_buf in the post-process is sized for NAND_PACKET_SIZE_MAX, and
      * packet_size must be non-zero so the post-process loop always makes
      * forward progress. */
-    if (packet_size == 0 || packet_size > NAND_PAGE_SIZE * 2) {
+    if (packet_size == 0 || packet_size > NAND_PACKET_SIZE_MAX) {
         return RESPONSE_BAD_DATA_LEN;
     }
 
@@ -371,8 +412,9 @@ int nand_plugin_write_flash_begin(uint8_t command, const uint8_t *data, uint32_t
     ptr += sizeof(uint32_t);
     uint32_t total_size = get_le_to_u32(ptr); /* ptr += sizeof(uint32_t); block_size and packet_size unused */
 
-    /* Write path assumes page-aligned offset: page_number = offset / NAND_PAGE_SIZE */
-    if ((offset % NAND_PAGE_SIZE) != 0) {
+    /* Write path assumes page-aligned offset: page_number = offset / page_size */
+    uint32_t page_size = nand_page_size();
+    if (page_size == 0 || (offset % page_size) != 0) {
         return RESPONSE_BAD_DATA_LEN;
     }
 
@@ -431,17 +473,22 @@ int nand_plugin_write_flash_data(uint8_t command, const uint8_t *data, uint32_t 
     }
     const uint8_t *src = flash_data;
 
+    uint32_t page_size = nand_page_size();
+    if (page_size == 0 || page_size > NAND_PAGE_SIZE_MAX) {
+        return RESPONSE_FAILED_SPI_OP;
+    }
+
     while (to_process > 0) {
-        uint32_t space = NAND_PAGE_SIZE - s_nand_write_state.page_buf_filled;
+        uint32_t space = page_size - s_nand_write_state.page_buf_filled;
         uint32_t chunk = (to_process < space) ? to_process : space;
-        memcpy(s_nand_write_state.page_buf + s_nand_write_state.page_buf_filled,
+        memcpy(s_nand_page_buf + s_nand_write_state.page_buf_filled,
                src, chunk);
         s_nand_write_state.page_buf_filled += chunk;
         s_nand_write_state.total_remaining -= chunk;
         src += chunk;
         to_process -= chunk;
 
-        if (s_nand_write_state.page_buf_filled >= NAND_PAGE_SIZE) {
+        if (s_nand_write_state.page_buf_filled >= page_size) {
             int ret = s_nand_write_flush_page();
             if (ret != RESPONSE_SUCCESS) {
                 s_nand_write_state.page_buf_filled = 0;
@@ -471,9 +518,13 @@ int nand_plugin_write_flash_end(uint8_t command, const uint8_t *data, uint32_t l
     }
 
     if (s_nand_write_state.page_buf_filled > 0) {
-        memset(s_nand_write_state.page_buf + s_nand_write_state.page_buf_filled,
-               0xFF, NAND_PAGE_SIZE - s_nand_write_state.page_buf_filled);
-        s_nand_write_state.page_buf_filled = NAND_PAGE_SIZE;
+        uint32_t page_size = nand_page_size();
+        if (page_size == 0 || s_nand_write_state.page_buf_filled > page_size) {
+            return RESPONSE_FAILED_SPI_OP;
+        }
+        memset(s_nand_page_buf + s_nand_write_state.page_buf_filled,
+               0xFF, page_size - s_nand_write_state.page_buf_filled);
+        s_nand_write_state.page_buf_filled = page_size;
         int ret = s_nand_write_flush_page();
         if (ret != RESPONSE_SUCCESS) {
             s_nand_write_state.page_buf_filled = 0;
@@ -494,8 +545,13 @@ int nand_plugin_erase_flash(uint8_t command, const uint8_t *data, uint32_t len, 
     (void)data;
     (void)len;
     (void)resp;
-    for (uint32_t block = 0; block < NAND_BLOCK_COUNT; block++) {
-        int ret = stub_target_nand_erase_block(block * NAND_PAGES_PER_BLOCK);
+    uint32_t pages_per_block = nand_pages_per_block();
+    uint32_t block_count = stub_lib_nand_get_block_count();
+    if (pages_per_block == 0 || block_count == 0) {
+        return RESPONSE_FAILED_SPI_OP;
+    }
+    for (uint32_t block = 0; block < block_count; block++) {
+        int ret = stub_lib_nand_erase_block(block * pages_per_block);
         if (ret != 0) {
             return nand_err_to_response(ret);
         }
@@ -514,14 +570,20 @@ int nand_plugin_erase_region(uint8_t command, const uint8_t *data, uint32_t len,
     uint32_t offset = get_le_to_u32(data);
     uint32_t erase_size = get_le_to_u32(data + sizeof(uint32_t));
 
-    if (offset % NAND_BLOCK_SIZE != 0 || erase_size % NAND_BLOCK_SIZE != 0) {
+    uint32_t block_size = nand_block_size();
+    uint32_t page_size = nand_page_size();
+    uint32_t pages_per_block = nand_pages_per_block();
+    if (block_size == 0 || page_size == 0 || pages_per_block == 0) {
+        return RESPONSE_FAILED_SPI_OP;
+    }
+    if (offset % block_size != 0 || erase_size % block_size != 0) {
         return RESPONSE_BAD_DATA_LEN;
     }
 
-    uint32_t start_page = offset / NAND_PAGE_SIZE;
-    uint32_t num_blocks = erase_size / NAND_BLOCK_SIZE;
+    uint32_t start_page = offset / page_size;
+    uint32_t num_blocks = erase_size / block_size;
     for (uint32_t i = 0; i < num_blocks; i++) {
-        int ret = stub_target_nand_erase_block(start_page + i * NAND_PAGES_PER_BLOCK);
+        int ret = stub_lib_nand_erase_block(start_page + i * pages_per_block);
         if (ret != 0) {
             return nand_err_to_response(ret);
         }
@@ -537,18 +599,17 @@ int nand_plugin_read_page_debug(uint8_t command, const uint8_t *data, uint32_t l
     }
 
     uint32_t page_number = get_le_to_u32(data);
-    uint32_t page_size = stub_target_nand_get_page_size();
-    if (page_size == 0 || page_size != NAND_PAGE_SIZE) {
+    uint32_t page_size = nand_page_size();
+    if (page_size == 0 || page_size > NAND_PAGE_SIZE_MAX) {
         return RESPONSE_FAILED_SPI_OP;
     }
 
-    static uint8_t page_buf[NAND_PAGE_SIZE] __attribute__((aligned(4)));
-    if (stub_target_nand_read_page(page_number, page_buf, page_size) != 0) {
+    if (stub_lib_nand_read_page(page_number, s_nand_page_buf, page_size) != 0) {
         return RESPONSE_FAILED_SPI_OP;
     }
 
     resp->value = page_number;
-    memcpy(resp->data, page_buf, READ_PAGE_DEBUG_PREVIEW_SIZE);
+    memcpy(resp->data, s_nand_page_buf, READ_PAGE_DEBUG_PREVIEW_SIZE);
     resp->data_size = READ_PAGE_DEBUG_PREVIEW_SIZE;
     return RESPONSE_SUCCESS;
 }

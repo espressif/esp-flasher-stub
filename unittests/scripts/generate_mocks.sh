@@ -100,9 +100,9 @@ generate_mocks() {
     print_status "Generating mock for uart..."
     ruby CMock/scripts/create_mock.rb ../esp-stub-lib/include/esp-stub-lib/uart.h
 
-    # Generate mock for nand
+    # Generate mock for nand (with callback plugin for ReturnThruPtr and StubWithCallback support)
     print_status "Generating mock for nand..."
-    ruby CMock/scripts/create_mock.rb ../esp-stub-lib/src/target/base/include/target/nand.h
+    ruby scripts/create_mock_with_callbacks.rb ../esp-stub-lib/include/esp-stub-lib/nand.h
 
     # Generate mock for slip (with callback plugin for StubWithCallback support)
     print_status "Generating mock for slip..."
