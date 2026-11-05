@@ -22,10 +22,7 @@ enum stub_transport_type {
     TRANSPORT_USB_OTG = 1,
     TRANSPORT_USB_SERIAL_JTAG = 2,
     TRANSPORT_SDIO = 3,
-#ifdef STUB_SPI_ENABLED
-    TRANSPORT_SPI = 4,
-#endif
-    TRANSPORT_PLUGIN = 5,
+    TRANSPORT_PLUGIN = 4,
 };
 
 /**
@@ -80,7 +77,7 @@ struct stub_transport_plugin {
     const struct stub_transport_ops *(*init)(const struct frame_buffer_ops *fb);
 };
 
-extern struct stub_transport_plugin transport_plugin;
+extern volatile struct stub_transport_plugin transport_plugin;
 
 /**
  * @brief Detect which transport is active (selected by ROM)

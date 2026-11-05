@@ -12,6 +12,7 @@ This project has replaced the deprecated [legacy flasher stub of esptool](https:
 - [Development Guide](docs/development-guide.md) - Contributing guidelines, testing, CI/CD, and release process
 - [Plugin System](docs/plugin-system.md) - Runtime-loadable plugin architecture and guide for adding new plugins
 - [NAND Flash Support](docs/plugins/nand-flash.md) - NAND flash programming support (preview)
+- [SPI Transport](docs/plugins/spi-transport.md) - SPI slave transport plugin for esp-serial-flasher
 
 ## Supported Chips
 
@@ -94,20 +95,9 @@ ninja -C build
 ./tools/build_all_chips.sh
 ```
 
-### Build with the SPI Transport
+### SPI Transport
 
-The SPI transport lets [esp-serial-flasher](https://github.com/espressif/esp-serial-flasher) talk to the stub over the SPI download interface. The transport is off by default because it adds about 1.1–1.3 KB to the stub. To build it in, set the `STUB_SPI_ENABLED` option:
-
-```sh
-cmake . -B build -G Ninja -DTARGET_CHIP=esp32s3 -DSTUB_SPI_ENABLED=ON
-ninja -C build
-```
-
-To build SPI-enabled stubs for every chip that supports the SPI slave transport as `spi-build-<target>/<target>-spi.json`:
-
-```sh
-./tools/build_all_chips.sh --spi
-```
+The SPI transport lets [esp-serial-flasher](https://github.com/espressif/esp-serial-flasher) talk to the stub over the SPI download interface. It is a [transport plugin](docs/plugins/spi-transport.md), so the stub carries its code only when the host loads it. The regular build embeds it in `<target>.json` for every chip that supports it; no build option is needed.
 
 ## How to Use with Esptool
 

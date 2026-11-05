@@ -13,20 +13,12 @@
 #include <esp-stub-lib/rom_wrappers.h>
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/sdio.h>
-#ifdef STUB_SPI_ENABLED
-#include <esp-stub-lib/slave_spi.h>
-#endif
 #include "transport.h"
 #include "frame_buffer.h"
 #include "slip.h"
 
 #define USB_INTERRUPT_SOURCE  17
 #define UART_INTERRUPT_SOURCE 5
-
-#ifdef STUB_SPI_ENABLED
-// SPI TX sends at most 4092 bytes per frame.
-#define SPI_MAX_TX_FRAME_SIZE 4092U
-#endif
 
 /* ---- Interrupt handlers -------------------------------------------------- */
 
@@ -144,53 +136,6 @@ static const struct stub_transport_ops s_sdio_ops = {
     .max_tx_frame_size = SDIO_DMA_DESC_MAX_LEN,
 };
 
-#ifdef STUB_SPI_ENABLED
-/* ---- SPI transport ops ---------------------------------------------------- */
-/* Like SDIO, SPI bypasses SLIP: DMA writes a whole frame into the armed buffer
- * and stub_lib_slave_spi_take_rx_frame() (polled) latches its length. */
-
-static void spi_arm(void)
-{
-    stub_lib_slave_spi_rearm(frame_buffer_acquire(), FRAME_BUFFER_SIZE);
-}
-
-static const uint8_t *spi_recv_poll(size_t *len, bool *error)
-{
-    *error = false;
-
-    enum frame_buffer_state state = frame_buffer_get_state();
-    if (state == FRAME_BUFFER_STATE_IDLE) {
-        size_t n;
-        if (!stub_lib_slave_spi_take_rx_frame(&n)) {
-            spi_arm();
-            return NULL;
-        }
-        frame_buffer_mark_complete(n);   /* frame already DMA'd into proc buf */
-        state = frame_buffer_get_state();
-        spi_arm();                       /* take done → switch to spare + arm */
-    }
-    if (state == FRAME_BUFFER_STATE_ERROR) {
-        *error = true;
-        return NULL;
-    }
-    return frame_buffer_get_data(len);
-}
-
-static bool spi_send_frame(const void *data, size_t len)
-{
-    /* SPI TX uses one 12-bit DMA descriptor and is capped at the largest
-     * 4-byte-aligned descriptor size, 4092 bytes. */
-    return stub_lib_slave_spi_tx_frame(data, len) == STUB_LIB_OK;
-}
-
-static const struct stub_transport_ops s_spi_ops = {
-    .recv_poll    = spi_recv_poll,
-    .recv_release = frame_buffer_reset,
-    .send_frame   = spi_send_frame,
-    .max_tx_frame_size = SPI_MAX_TX_FRAME_SIZE,
-};
-#endif
-
 /* ---- Transport plugin hook ----------------------------------------------- */
 
 static bool s_transport_plugin_inactive(void)
@@ -199,8 +144,8 @@ static bool s_transport_plugin_inactive(void)
 }
 
 /* Non-zero default keeps the hook in .data, where the host patches it.
- * externally_visible stops LTO from folding the reads to the default. */
-struct stub_transport_plugin transport_plugin __attribute__((externally_visible)) = {
+ * volatile stops LTO from folding the reads to the default. */
+volatile struct stub_transport_plugin transport_plugin = {
     .is_active = s_transport_plugin_inactive,
 };
 
@@ -227,11 +172,6 @@ int stub_transport_detect(void)
     if (stub_lib_sdio_is_active()) {
         return TRANSPORT_SDIO;
     }
-#ifdef STUB_SPI_ENABLED
-    if (stub_lib_slave_spi_is_active()) {
-        return TRANSPORT_SPI;
-    }
-#endif
     if (stub_lib_usb_otg_is_active()) {
         return TRANSPORT_USB_OTG;
     }
@@ -252,14 +192,6 @@ const struct stub_transport_ops *stub_transport_init(int transport)
         /* Arm the first DMA receive buffer immediately after init. */
         sdio_arm();
         return &s_sdio_ops;
-
-#ifdef STUB_SPI_ENABLED
-    case TRANSPORT_SPI:
-        stub_lib_slave_spi_init();
-        /* Arm the first DMA receive buffer immediately after init. */
-        spi_arm();
-        return &s_spi_ops;
-#endif
 
     case TRANSPORT_USB_OTG:
         stub_lib_usb_otg_rominit_intr_attach(USB_INTERRUPT_SOURCE, slip_recv_byte);

@@ -127,10 +127,19 @@ The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plug
 | `src/transport.h` / `src/transport.c` | Transport plugin hook (`transport_plugin`) and its ABI |
 | `src/nand_plugin.c` | Reference plugin (9 NAND handlers) |
 | `src/ld/nand_plugin.ld` | Reference plugin linker script |
+| `src/spi_transport_plugin.c` | Reference transport plugin (SPI slave) |
+| `src/ld/spi_plugin.ld` | Reference transport plugin linker script |
 
 ## Chip Support
 
-Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT and the transport hook built in to the base stub. Currently, ESP32-S3 is the only chip that ships with a plugin (the NAND plugin). Support for additional chips is planned.
+Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT and the transport hook built in to the base stub. These plugins ship today:
+
+| Plugin | Chips |
+|---|---|
+| [NAND](plugins/nand-flash.md) | ESP32-S3 |
+| [SPI transport](plugins/spi-transport.md) | ESP32-C2, ESP32-C3, ESP32-P4, ESP32-S2, ESP32-S3 |
+
+On ESP32-S3 the SPI transport plugin is stacked after the NAND plugin.
 
 ## Adding a New Plugin
 
@@ -249,7 +258,7 @@ In `StubFlasher` (esptool `loader.py`):
 
 ## Transport Plugins
 
-A transport plugin moves a transport (for example SPI or SDIO) out of the base stub, so stubs for hosts that do not use it do not carry its code. It is an ordinary plugin: it is built with `stub_add_plugin()`, follows the same linker script and BSS-only rules, and is uploaded in the same way. In addition, it exports two functions that the base stub calls at startup. A plugin can export command handlers as well.
+A transport plugin moves a transport (for example SPI or SDIO) out of the base stub, so stubs for hosts that do not use it do not carry its code. It is an ordinary plugin: it is built with `stub_add_plugin()`, follows the same linker script and BSS-only rules, and is uploaded in the same way. In addition, it exports two functions that the base stub calls at startup. A plugin can export command handlers as well. The [SPI transport](plugins/spi-transport.md) (`src/spi_transport_plugin.c`) is the reference transport plugin.
 
 ### Transport Hook
 

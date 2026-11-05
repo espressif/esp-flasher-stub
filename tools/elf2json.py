@@ -38,7 +38,9 @@ PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
 # Registry of transport plugin hook symbols (must match EXTERN() in each plugin .ld).
 # Format: '<plugin>': {'is_active': '<symbol>', 'init': '<symbol>'}
 # Add a new entry here when adding a new transport plugin.
-PLUGIN_TRANSPORT_SYMBOLS: Dict[str, Dict[str, str]] = {}
+PLUGIN_TRANSPORT_SYMBOLS: Dict[str, Dict[str, str]] = {
+    'spi': {'is_active': 'spi_transport_is_active', 'init': 'spi_transport_init'},
+}
 
 PLUGIN_FIRST_OPCODE = 0xD5
 PLUGIN_LAST_OPCODE = 0xEF  # Must match last reserved opcode in src/plugin_table.h

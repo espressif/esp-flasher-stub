@@ -14,18 +14,10 @@ target_link_options(${TARGET_NAME} PRIVATE
 
 target_link_libraries(${TARGET_NAME} PRIVATE esp-stub-lib)
 
-if(STUB_SPI_ENABLED)
-    target_compile_definitions(${TARGET_NAME} PRIVATE STUB_SPI_ENABLED)
-endif()
-
 # Base stub ELF — referenced as a dependency by the plugin-address and JSON
 # custom commands below.
 set(BASE_ELF $<TARGET_FILE:${TARGET_NAME}>)
-if(STUB_SPI_ENABLED)
-    set(STUB_JSON_NAME ${TARGET_CHIP}-spi.json)
-else()
-    set(STUB_JSON_NAME ${TARGET_CHIP}.json)
-endif()
+set(STUB_JSON_NAME ${TARGET_CHIP}.json)
 set(STUB_JSON ${CMAKE_BINARY_DIR}/${STUB_JSON_NAME})
 
 # ---------------------------------------------------------------------------
@@ -125,7 +117,10 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
 
     # ---- Plugins available for this chip ------------------------------------
     set(NAND_PLUGIN_CHIPS esp32s3)
+    set(SPI_PLUGIN_CHIPS esp32c2 esp32c3 esp32p4-rev1 esp32p4 esp32s2 esp32s3)
 
+    # NAND stays first: esptool zeroes plugin BSS right after the base .data,
+    # which is only correct for the first plugin.
     if(TARGET_CHIP IN_LIST NAND_PLUGIN_CHIPS)
         stub_add_plugin(
             NAME          nand
@@ -134,6 +129,14 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         )
     else()
         message(STATUS "No NAND support for ${TARGET_CHIP}, skipping NAND plugin build.")
+    endif()
+
+    if(TARGET_CHIP IN_LIST SPI_PLUGIN_CHIPS)
+        stub_add_plugin(
+            NAME          spi
+            SOURCES       spi_transport_plugin.c
+            LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/spi_plugin.ld
+        )
     endif()
 endif()
 
