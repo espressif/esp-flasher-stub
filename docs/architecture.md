@@ -2,7 +2,7 @@
 
 ## Overview
 
-The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) through a transport abstraction to perform flash programming and other operations. UART, USB-Serial-JTAG, and USB-OTG carry [SLIP](https://datatracker.ietf.org/doc/html/rfc1055)-framed commands; SDIO and SPI carry raw command frames. SPI is optional and is built only with `STUB_SPI_ENABLED` (see [Build System](#build-system)).
+The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) through a transport abstraction to perform flash programming and other operations. UART, USB-Serial-JTAG, and USB-OTG carry [SLIP](https://datatracker.ietf.org/doc/html/rfc1055)-framed commands; SDIO and SPI carry raw command frames. SPI is a [transport plugin](plugins/spi-transport.md) that the host loads only when it uses SPI.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -46,9 +46,10 @@ src/
 ├── commands.h          Command IDs and response codes
 ├── plugin_table.h      Function Pointer Table ABI (plugin system)
 ├── nand_plugin.c       NAND flash plugin (9 handlers)
+├── spi_transport_plugin.c SPI slave transport plugin
 ├── transport.c / .h    Transport detection, initialization, and RX/TX operations
 ├── endian_utils.h      Byte-order conversion helpers
-└── ld/                 Linker scripts (one per chip + common.ld + nand_plugin.ld)
+└── ld/                 Linker scripts (one per chip + common.ld + one per plugin)
 ```
 
 ## Build System
@@ -71,7 +72,7 @@ The build requires the `-DTARGET_CHIP=<chip>` parameter. The CMake configuration
 5. Applies target-local size workarounds where needed, such as `-fdata-sections` only for ESP8266 `miniz_obj`.
 6. Runs `tools/elf2json.py` as a post-build step to generate the JSON stub file.
 
-The optional `-DSTUB_SPI_ENABLED=ON` parameter builds in the SPI transport by defining `STUB_SPI_ENABLED` for the firmware sources and names the output `<target>-spi.json`. It is off by default: only esp-serial-flasher uses SPI, and the transport adds about 1.1–1.3 KB to the stub. The SPI slave driver in esp-stub-lib exists for ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3 and ESP32-P4. On other chips the transport is never detected.
+The SPI transport is built as a plugin (`spi_transport_plugin.c`) for the chips whose SPI slave driver exists in esp-stub-lib: ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3 and ESP32-P4. The frame buffers always use the SPI slave DMA alignment (`SLAVE_SPI_DMA_ALIGN`), because the plugin receives into them and cannot change the base stub's layout.
 
 SPI slave-to-host frames have a maximum size of 4092 bytes. The transmit path uses one DMA descriptor with a 12-bit size field and a 4-byte-aligned data buffer. The receive path is not subject to this per-frame limit because it chains multiple DMA descriptors for host-to-stub frames.
 
@@ -93,9 +94,11 @@ The `common.ld` file defines sections (`.text`, `.bss`, `.data`) and sets the en
 
 The stub supports runtime-loadable plugins that extend the command set. Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array in the base stub's `.data` segment, indexed by opcode (range `0xD5`–`0xEF`). At startup all entries default to `s_plugin_unsupported`. esptool patches the relevant entries and uploads the plugin binary before handing off control.
 
+A plugin can also provide a transport. The base stub holds a transport hook, `transport_plugin`, in `.data`, which the host patches when it loads a transport plugin. The stub checks the hook before it probes the built-in transports. The hook passes the base frame buffer to the plugin, and the plugin returns its transport operations.
+
 Command handlers and plugin post-process callbacks receive a `struct cmd_ctx` that includes the selected transport operations. Streaming code should send data and poll ACKs through `ctx->transport`, so plugin code stays independent of whether the host is using SLIP-based UART/USB or raw SDIO.
 
-For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
+For chips that support a plugin (ESP32-S3 with the NAND plugin, and the SPI chips with the SPI transport plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
 
 1. Build the base stub ELF.
 2. `tools/compute_plugin_addrs.py` reads the base ELF sizes and emits a linker fragment with the plugin load addresses.

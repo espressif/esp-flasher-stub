@@ -22,9 +22,7 @@ enum stub_transport_type {
     TRANSPORT_USB_OTG = 1,
     TRANSPORT_USB_SERIAL_JTAG = 2,
     TRANSPORT_SDIO = 3,
-#ifdef STUB_SPI_ENABLED
-    TRANSPORT_SPI = 4,
-#endif
+    TRANSPORT_PLUGIN = 4,
 };
 
 /**
@@ -61,6 +59,25 @@ struct stub_transport_ops {
     /** Maximum frame length accepted by send_frame(). */
     size_t max_tx_frame_size;
 };
+
+struct frame_buffer_ops;
+
+/**
+ * @brief Transport plugin hook
+ *
+ * Defaults to an inactive hook in the base stub's .data. The host patches
+ * both entries with the transport plugin's functions before upload; see
+ * docs/plugin-system.md.
+ */
+struct stub_transport_plugin {
+    /** Return true if the plugin's transport was selected by ROM. */
+    bool (*is_active)(void);
+
+    /** Initialize the transport; @p fb is the base stub's frame buffer. */
+    const struct stub_transport_ops *(*init)(const struct frame_buffer_ops *fb);
+};
+
+extern volatile struct stub_transport_plugin transport_plugin;
 
 /**
  * @brief Detect which transport is active (selected by ROM)

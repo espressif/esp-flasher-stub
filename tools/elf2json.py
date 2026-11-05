@@ -35,6 +35,13 @@ PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
     },
 }
 
+# Registry of transport plugin hook symbols (must match EXTERN() in each plugin .ld).
+# Format: '<plugin>': {'is_active': '<symbol>', 'init': '<symbol>'}
+# Add a new entry here when adding a new transport plugin.
+PLUGIN_TRANSPORT_SYMBOLS: Dict[str, Dict[str, str]] = {
+    'spi': {'is_active': 'spi_transport_is_active', 'init': 'spi_transport_init'},
+}
+
 PLUGIN_FIRST_OPCODE = 0xD5
 PLUGIN_LAST_OPCODE = 0xEF  # Must match last reserved opcode in src/plugin_table.h
 PLUGIN_TABLE_ENTRIES = (
@@ -119,11 +126,15 @@ def get_stub_sections(
         else:
             # Find plugin_table symbol to compute FPT offset (done once for all plugins)
             plugin_table_offset = None
+            transport_plugin_offset = None
             with open(elf_file, 'rb') as f:
                 py_elf = PyELFFile(f)
                 addr = _get_symbol_addr(py_elf, 'plugin_table')
                 if addr is not None:
                     plugin_table_offset = addr - data_addr
+                addr = _get_symbol_addr(py_elf, 'transport_plugin')
+                if addr is not None:
+                    transport_plugin_offset = addr - data_addr
 
             if plugin_table_offset is None:
                 print(
@@ -161,6 +172,7 @@ def get_stub_sections(
                     p_text_data = bytes(p_text_sec.data())
                     p_text_start = p_text_sec['sh_addr']
                     p_bss_size = p_bss_sec['sh_size'] if p_bss_sec else 0
+                    p_bss_start = p_bss_sec['sh_addr'] if p_bss_sec else None
 
                     # Guard against silent data loss: plugin .data/.rodata are never
                     # uploaded, so any initialized globals would be silently missing.
@@ -189,7 +201,8 @@ def get_stub_sections(
                         p_text_data += b'\x00' * (4 - overreach)
 
                     handler_map = PLUGIN_HANDLER_SYMBOLS.get(p_name, {})
-                    if not handler_map:
+                    transport_map = PLUGIN_TRANSPORT_SYMBOLS.get(p_name, {})
+                    if not handler_map and not transport_map:
                         print(
                             f"WARNING: unknown plugin '{p_name}' — no handler symbols defined",
                             file=sys.stderr,
@@ -203,6 +216,14 @@ def get_stub_sections(
                             continue
                         handlers[opcode_str] = sym_addr - p_text_start
 
+                    transport: Dict[str, int] = {}
+                    for hook, sym_name in transport_map.items():
+                        sym_addr = _get_symbol_addr(p_elf, sym_name)
+                        if sym_addr is None:
+                            missing_symbols.append(sym_name)
+                            continue
+                        transport[hook] = sym_addr - p_text_start
+
                     if missing_symbols:
                         raise SystemExit(
                             f"ERROR: Plugin '{p_name}': missing handler symbol(s) in {p_elf_file}: "
@@ -215,6 +236,19 @@ def get_stub_sections(
                     'bss_size': p_bss_size,
                     'handlers': handlers,
                 }
+                # Plugins stack, so a plugin's BSS follows the base .data only
+                # when every earlier plugin is loaded as well.
+                if p_bss_start is not None:
+                    stub['plugins'][p_name]['bss_start'] = p_bss_start
+
+                if transport:
+                    if transport_plugin_offset is None or not (0 <= transport_plugin_offset < data_len):
+                        raise SystemExit(
+                            f"ERROR: Plugin '{p_name}' is a transport plugin, but the transport_plugin "
+                            f'symbol is missing or outside base stub .data (size {data_len}).'
+                        )
+                    stub['transport_plugin_offset'] = transport_plugin_offset
+                    stub['plugins'][p_name]['transport'] = transport
 
     return stub
 

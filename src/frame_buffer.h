@@ -32,6 +32,19 @@ enum frame_buffer_state frame_buffer_get_state(void);
 const uint8_t *frame_buffer_get_data(size_t *length);
 void frame_buffer_reset(void);
 
+/**
+ * @brief Frame buffer API passed to a transport plugin, which cannot link
+ *        against the base stub's frame_buffer_* symbols.
+ */
+struct frame_buffer_ops {
+    void (*mark_error)(void);
+    uint8_t *(*acquire)(void);
+    void (*mark_complete)(size_t len);
+    enum frame_buffer_state(*get_state)(void);
+    const uint8_t *(*get_data)(size_t *length);
+    void (*reset)(void);
+};
+
 #ifdef __cplusplus
 }
 #endif
