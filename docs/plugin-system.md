@@ -1,6 +1,6 @@
 # Plugin System
 
-The stub supports runtime-loadable plugins that extend its command set with new capabilities. Plugins are general-purpose — they can add support for external flash chips, memory devices, security features, or any other hardware functionality. This document describes the plugin architecture, the build process, and how to add a new plugin.
+The stub supports runtime-loadable plugins that extend its command set with new capabilities. Plugins are general-purpose — they can add support for external flash chips, memory devices, security features, or any other hardware functionality. A plugin can also provide the transport that links the stub to the host (see [Transport Plugins](#transport-plugins)). This document describes the plugin architecture, the build process, and how to add a new plugin.
 
 ## Architecture
 
@@ -80,6 +80,8 @@ Before uploading the stub, esptool (Python side):
    3. Plugin `.text`
    4. Calls `mem_finish` to start execution
 
+Plugins stack, so a plugin's `.bss` follows the base `.data` directly only when every earlier plugin is loaded too. A host that loads a later plugin on its own must zero `bss_size` bytes at the plugin's `bss_start` instead.
+
 After startup, plugin opcodes use the same command dispatcher and transport operations as base commands. Plugins do not link against base SLIP helper symbols; streaming callbacks use `ctx->transport`.
 
 ### Xtensa IRAM Caveat
@@ -122,12 +124,13 @@ The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plug
 | `tools/elf2json.py` | Converts ELF to JSON; embeds plugin `.text` and `.bss` size |
 | `src/plugin_table.h` | FPT ABI constants and `plugin_cmd_handler_t` typedef |
 | `src/command_handler.c` | Opcode dispatch to FPT |
+| `src/transport.h` / `src/transport.c` | Transport plugin hook (`transport_plugin`) and its ABI |
 | `src/nand_plugin.c` | Reference plugin (9 NAND handlers) |
 | `src/ld/nand_plugin.ld` | Reference plugin linker script |
 
 ## Chip Support
 
-Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT built in to the base stub. Currently, ESP32-S3 is the only chip that ships with a plugin (the NAND plugin). Support for additional chips is planned.
+Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-S3, ESP32-C3, etc.) have the FPT and the transport hook built in to the base stub. Currently, ESP32-S3 is the only chip that ships with a plugin (the NAND plugin). Support for additional chips is planned.
 
 ## Adding a New Plugin
 
@@ -224,6 +227,7 @@ Register the plugin handler symbols in `PLUGIN_HANDLER_SYMBOLS`. `elf2json.py` a
         "text": "<base64-encoded padded .text>",
         "text_start": 1077944160,
         "bss_size": 4096,
+        "bss_start": 1070292720,
         "handlers": {
             "0xDE": 0,
             "0xDF": 128,
@@ -242,3 +246,69 @@ In `StubFlasher` (esptool `loader.py`):
 1. Detect the `"plugins"` key in the JSON stub file.
 2. Patch the FPT entries for the new opcodes with the plugin handler addresses (plugin text start + handler offset).
 3. Upload plugin `.bss` zeros appended to the base data segment, then upload plugin `.text` after the base text.
+
+## Transport Plugins
+
+A transport plugin moves a transport (for example SPI or SDIO) out of the base stub, so stubs for hosts that do not use it do not carry its code. It is an ordinary plugin: it is built with `stub_add_plugin()`, follows the same linker script and BSS-only rules, and is uploaded in the same way. In addition, it exports two functions that the base stub calls at startup. A plugin can export command handlers as well.
+
+### Transport Hook
+
+The base stub holds one transport hook, `transport_plugin`, in its `.data` segment (`src/transport.h`):
+
+```c
+struct stub_transport_plugin {
+    bool (*is_active)(void);
+    const struct stub_transport_ops *(*init)(const struct frame_buffer_ops *fb);
+};
+```
+
+By default `is_active` points to a function that returns `false`, so the stub uses only its built-in transports. When the host patches the hook:
+
+1. `stub_transport_detect()` calls `is_active()` before it probes the built-in transports. If it returns `true`, the stub selects `TRANSPORT_PLUGIN`.
+2. `stub_transport_init()` calls `init()` at the point where a built-in transport would be initialized. `init()` initializes the hardware and returns the transport operations that the stub uses for the rest of the session.
+
+The hook has one slot, so the host loads at most one transport plugin — the one for the link it is using.
+
+### Plugin Rules
+
+- Export `<name>_transport_is_active` and `<name>_transport_init` as global functions with the signatures above, list both with `EXTERN()` in the plugin linker script, and register them in `PLUGIN_TRANSPORT_SYMBOLS` in `tools/elf2json.py`:
+
+  ```python
+  PLUGIN_TRANSPORT_SYMBOLS = {
+      'spi': {'is_active': 'spi_transport_is_active', 'init': 'spi_transport_init'},
+  }
+  ```
+
+- Fill `struct stub_transport_ops` at runtime inside `init()` and keep it in BSS. A `static const` operations table goes to `.rodata`, which a plugin must not have.
+- Receive frames into the base stub's frame buffer through the `fb` operations that `init()` receives. The plugin cannot link against the base `frame_buffer_*` symbols, and a second pair of frame buffers does not fit in RAM on every chip. `recv_release` can be `fb->reset`.
+
+### JSON and Host Side
+
+For a plugin registered in `PLUGIN_TRANSPORT_SYMBOLS`, `elf2json.py` adds the hook offsets to the plugin entry and the hook location to the top level:
+
+```json
+"transport_plugin_offset": 64,
+"plugins": {
+    "spi": {
+        "text": "...",
+        "text_start": 1077944160,
+        "bss_size": 116,
+        "bss_start": 1070292720,
+        "handlers": {},
+        "transport": {
+            "is_active": 52,
+            "init": 72
+        }
+    }
+}
+```
+
+- `transport_plugin_offset` is the byte offset of `transport_plugin` within the base `.data` segment.
+- `transport` holds offsets from the plugin `.text` start, like `handlers`.
+
+These keys appear only when the JSON embeds a transport plugin. To load a transport plugin, the host does the same as for any plugin (see [Step 7](#step-7--update-esptool-python-side)) and also writes these two 32-bit little-endian values into the base data segment:
+
+1. `text_start + transport.is_active` at `transport_plugin_offset`.
+2. `text_start + transport.init` at `transport_plugin_offset + 4`.
+
+A host that does not know these keys leaves the hook unpatched, and the stub falls back to its built-in transports.

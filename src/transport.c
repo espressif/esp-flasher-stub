@@ -191,10 +191,37 @@ static const struct stub_transport_ops s_spi_ops = {
 };
 #endif
 
+/* ---- Transport plugin hook ----------------------------------------------- */
+
+static bool s_transport_plugin_inactive(void)
+{
+    return false;
+}
+
+/* Non-zero default keeps the hook in .data, where the host patches it.
+ * externally_visible stops LTO from folding the reads to the default. */
+struct stub_transport_plugin transport_plugin __attribute__((externally_visible)) = {
+    .is_active = s_transport_plugin_inactive,
+};
+
+static const struct frame_buffer_ops s_frame_buffer_ops = {
+    .mark_error    = frame_buffer_mark_error,
+    .acquire       = frame_buffer_acquire,
+    .mark_complete = frame_buffer_mark_complete,
+    .get_state     = frame_buffer_get_state,
+    .get_data      = frame_buffer_get_data,
+    .reset         = frame_buffer_reset,
+};
+
 /* ---- Detection & initialisation ------------------------------------------ */
 
 int stub_transport_detect(void)
 {
+    /* The host loads a transport plugin only for the link it is using, so
+     * check it before probing the built-in transports. */
+    if (transport_plugin.is_active()) {
+        return TRANSPORT_PLUGIN;
+    }
     /* SDIO must be checked before USB: ROM may leave USB registers in an
      * ambiguous state after an SDIO boot. */
     if (stub_lib_sdio_is_active()) {
@@ -217,6 +244,9 @@ int stub_transport_detect(void)
 const struct stub_transport_ops *stub_transport_init(int transport)
 {
     switch (transport) {
+    case TRANSPORT_PLUGIN:
+        return transport_plugin.init(&s_frame_buffer_ops);
+
     case TRANSPORT_SDIO:
         stub_lib_sdio_init();
         /* Arm the first DMA receive buffer immediately after init. */

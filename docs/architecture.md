@@ -93,6 +93,8 @@ The `common.ld` file defines sections (`.text`, `.bss`, `.data`) and sets the en
 
 The stub supports runtime-loadable plugins that extend the command set. Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array in the base stub's `.data` segment, indexed by opcode (range `0xD5`–`0xEF`). At startup all entries default to `s_plugin_unsupported`. esptool patches the relevant entries and uploads the plugin binary before handing off control.
 
+A plugin can also provide a transport. The base stub holds a transport hook, `transport_plugin`, in `.data`, which the host patches when it loads a transport plugin. The stub checks the hook before it probes the built-in transports. The hook passes the base frame buffer to the plugin, and the plugin returns its transport operations.
+
 Command handlers and plugin post-process callbacks receive a `struct cmd_ctx` that includes the selected transport operations. Streaming code should send data and poll ACKs through `ctx->transport`, so plugin code stays independent of whether the host is using SLIP-based UART/USB or raw SDIO.
 
 For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
