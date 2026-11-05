@@ -6,6 +6,7 @@
 
 #include <esp-stub-lib/slave_spi.h>
 #include "frame_buffer.h"
+#include "stub_export.h"
 
 /*
  * Two buffers: one being received into (s_rx_idx), one being processed (s_proc_idx).
@@ -33,7 +34,7 @@ void frame_buffer_mark_error(void)
     s_buffers[s_rx_idx].frame_error = true;
 }
 
-uint8_t *frame_buffer_acquire(void)
+STUB_EXPORT uint8_t *frame_buffer_acquire(void)
 {
     if (s_buffers[s_rx_idx].frame_complete || s_buffers[s_rx_idx].frame_error) {
         uint8_t other = (uint8_t)(1U - s_rx_idx);
@@ -46,7 +47,7 @@ uint8_t *frame_buffer_acquire(void)
     return s_buffers[s_rx_idx].buffer;
 }
 
-void frame_buffer_mark_complete(size_t len)
+STUB_EXPORT void frame_buffer_mark_complete(size_t len)
 {
     struct frame_buffer *rx_buf = &s_buffers[s_rx_idx];
     if (len > FRAME_BUFFER_SIZE) {
@@ -57,7 +58,7 @@ void frame_buffer_mark_complete(size_t len)
     rx_buf->frame_complete = true;
 }
 
-enum frame_buffer_state frame_buffer_get_state(void)
+STUB_EXPORT enum frame_buffer_state frame_buffer_get_state(void)
 {
     uint8_t other = (uint8_t)(1U - s_rx_idx);
     if (s_buffers[other].frame_error)       {
@@ -79,7 +80,7 @@ enum frame_buffer_state frame_buffer_get_state(void)
     return FRAME_BUFFER_STATE_IDLE;
 }
 
-const uint8_t *frame_buffer_get_data(size_t *length)
+STUB_EXPORT const uint8_t *frame_buffer_get_data(size_t *length)
 {
     *length = s_buffers[s_proc_idx].frame_length;
     return s_buffers[s_proc_idx].buffer;
@@ -94,7 +95,7 @@ const uint8_t *frame_buffer_get_data(size_t *length)
  * the main loop releases it again afterwards, so a double release must be
  * harmless. Do not add re-arming or s_rx_idx handling here.
  */
-void frame_buffer_reset(void)
+STUB_EXPORT void frame_buffer_reset(void)
 {
     s_buffers[s_proc_idx].frame_length = 0;
     s_buffers[s_proc_idx].frame_complete = false;

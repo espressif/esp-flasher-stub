@@ -38,7 +38,8 @@ set(STUB_JSON ${CMAKE_BINARY_DIR}/${STUB_JSON_NAME})
 #   stub ELF ─► compute_plugin_addrs.py ─► <name>_plugin_addrs.ld ─► plugin ELF ─► JSON
 #
 # compute_plugin_addrs.py emits a linker fragment (PLUGIN_TEXT_ADDR /
-# PLUGIN_BSS_ADDR) that the plugin's linker script pulls in via -T.  The plugin
+# PLUGIN_BSS_ADDR, and the addresses of the base stub's STUB_EXPORT functions)
+# that the plugin's linker script pulls in via -T.  The plugin
 # link gains a LINK_DEPENDS on that fragment, so it relinks whenever the base
 # stub's size changes.  Plugins stack: each plugin's fragment depends on the
 # base stub plus every preceding plugin ELF (passed via --after).
@@ -105,7 +106,8 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         target_link_options(${_plugin_target} PRIVATE
             -L${LINKER_SCRIPTS_DIR}
             # Generated fragment first: defines PLUGIN_TEXT_ADDR / PLUGIN_BSS_ADDR
-            # used by the plugin linker script's MEMORY block.
+            # used by the plugin linker script's MEMORY block, and the base stub
+            # functions the plugin calls.
             "-T${_plugin_addrs_ld}"
             "-T${_PA_LINKER_SCRIPT}"
             -Wl,-Map=${CMAKE_BINARY_DIR}/${_plugin_target}.map

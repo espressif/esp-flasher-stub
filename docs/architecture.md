@@ -45,6 +45,7 @@ src/
 ├── command_handler.h   Command context and response API
 ├── commands.h          Command IDs and response codes
 ├── plugin_table.h      Function Pointer Table ABI (plugin system)
+├── stub_export.h       Attributes for base stub symbols that plugins use
 ├── nand_plugin.c       NAND flash plugin (9 handlers)
 ├── transport.c / .h    Transport detection, initialization, and RX/TX operations
 ├── endian_utils.h      Byte-order conversion helpers
@@ -93,12 +94,14 @@ The `common.ld` file defines sections (`.text`, `.bss`, `.data`) and sets the en
 
 The stub supports runtime-loadable plugins that extend the command set. Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array in the base stub's `.data` segment, indexed by opcode (range `0xD5`–`0xEF`). At startup all entries default to `s_plugin_unsupported`. esptool patches the relevant entries and uploads the plugin binary before handing off control.
 
+A plugin can also provide a transport. The base stub holds a transport hook, `transport_plugin`, in `.data`, which the host patches when it loads a transport plugin. The stub checks the hook before it probes the built-in transports. The plugin calls the base frame buffer functions directly and returns its transport operations.
+
 Command handlers and plugin post-process callbacks receive a `struct cmd_ctx` that includes the selected transport operations. Streaming code should send data and poll ACKs through `ctx->transport`, so plugin code stays independent of whether the host is using SLIP-based UART/USB or raw SDIO.
 
 For chips that support a plugin (currently ESP32-S3 with the NAND plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
 
 1. Build the base stub ELF.
-2. `tools/compute_plugin_addrs.py` reads the base ELF sizes and emits a linker fragment with the plugin load addresses.
+2. `tools/compute_plugin_addrs.py` reads the base ELF sizes and emits a linker fragment with the plugin load addresses and the addresses of the base stub functions that the plugin calls.
 3. Build the plugin ELF from its sources and esp-stub-lib. It pulls in that fragment via `-T` and relinks automatically whenever the base stub changes.
 4. `tools/elf2json.py` embeds the plugin into the JSON stub file.
 

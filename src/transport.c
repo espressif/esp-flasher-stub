@@ -19,6 +19,7 @@
 #include "transport.h"
 #include "frame_buffer.h"
 #include "slip.h"
+#include "stub_export.h"
 
 #define USB_INTERRUPT_SOURCE  17
 #define UART_INTERRUPT_SOURCE 5
@@ -191,10 +192,28 @@ static const struct stub_transport_ops s_spi_ops = {
 };
 #endif
 
+/* ---- Transport plugin hook ----------------------------------------------- */
+
+static bool s_transport_plugin_inactive(void)
+{
+    return false;
+}
+
+/* Non-zero default keeps the hook in .data, where the host patches it.
+ * externally_visible stops LTO from folding the reads to the default. */
+STUB_EXPORT_DATA struct stub_transport_plugin transport_plugin = {
+    .is_active = s_transport_plugin_inactive,
+};
+
 /* ---- Detection & initialisation ------------------------------------------ */
 
 int stub_transport_detect(void)
 {
+    /* The host loads a transport plugin only for the link it is using, so
+     * check it before probing the built-in transports. */
+    if (transport_plugin.is_active()) {
+        return TRANSPORT_PLUGIN;
+    }
     /* SDIO must be checked before USB: ROM may leave USB registers in an
      * ambiguous state after an SDIO boot. */
     if (stub_lib_sdio_is_active()) {
@@ -217,6 +236,9 @@ int stub_transport_detect(void)
 const struct stub_transport_ops *stub_transport_init(int transport)
 {
     switch (transport) {
+    case TRANSPORT_PLUGIN:
+        return transport_plugin.init();
+
     case TRANSPORT_SDIO:
         stub_lib_sdio_init();
         /* Arm the first DMA receive buffer immediately after init. */
