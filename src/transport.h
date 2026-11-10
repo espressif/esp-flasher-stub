@@ -63,8 +63,7 @@ struct stub_transport_ops {
 /**
  * @brief Transport plugin hook
  *
- * Defaults to an inactive hook in the base stub's .data. The host patches
- * both entries with the transport plugin's functions before upload; see
+ * Empty unless a transport plugin's start function fills it; see
  * docs/plugin-system.md.
  */
 struct stub_transport_plugin {

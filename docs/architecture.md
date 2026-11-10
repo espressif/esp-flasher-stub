@@ -38,15 +38,15 @@ The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chi
 
 ```
 src/
-├── main.c              Entry point (esp_main), BSS init, main loop
+├── main.c              Entry point (esp_main), BSS init, plugin start, main loop
 ├── frame_buffer.c / .h Shared double-buffered RX frame storage
 ├── slip.c / slip.h     SLIP byte-stuffing and byte-stream decoding
 ├── command_handler.c   Command parsing, dispatch, and response
 ├── command_handler.h   Command context and response API
 ├── commands.h          Command IDs and response codes
 ├── plugin_table.h      Function Pointer Table ABI (plugin system)
-├── stub_export.h       Attributes for base stub symbols that plugins use
-├── nand_plugin.c       NAND flash plugin (9 handlers)
+├── stub_export.h       Marks the base symbols that plugins can use
+├── nand_plugin.c       NAND flash plugin (10 handlers)
 ├── spi_transport_plugin.c SPI slave transport plugin
 ├── transport.c / .h    Transport detection, initialization, and RX/TX operations
 ├── endian_utils.h      Byte-order conversion helpers
@@ -93,16 +93,16 @@ The `common.ld` file defines sections (`.text`, `.bss`, `.data`) and sets the en
 
 ## Plugin System
 
-The stub supports runtime-loadable plugins that extend the command set. Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array in the base stub's `.data` segment, indexed by opcode (range `0xD5`–`0xEF`). At startup all entries default to `s_plugin_unsupported`. esptool patches the relevant entries and uploads the plugin binary before handing off control.
+The stub supports plugins that extend the command set. Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array in the base stub's `.data` segment, indexed by opcode (range `0xD5`–`0xEF`). At startup all entries default to `s_plugin_unsupported`. The host uploads the plugins with the base stub and writes their start functions into `plugin_start[]`. `esp_main` calls them at boot; each zeroes its plugin's `.bss` and writes the plugin's handlers into the table.
 
-A plugin can also provide a transport. The base stub holds a transport hook, `transport_plugin`, in `.data`, which the host patches when it loads a transport plugin. The stub checks the hook before it probes the built-in transports. The plugin calls the base frame buffer functions directly and returns its transport operations.
+A plugin can also provide a transport. The base stub holds a transport hook, `transport_plugin`, which the transport plugin's start function fills. The stub checks the hook before it probes the built-in transports. The plugin receives into the base frame buffer by calling the exported base `frame_buffer_*` functions, and its `init()` returns the plugin's transport operations.
 
 Command handlers and plugin post-process callbacks receive a `struct cmd_ctx` that includes the selected transport operations. Streaming code should send data and poll ACKs through `ctx->transport`, so plugin code stays independent of whether the host is using SLIP-based UART/USB or raw SDIO.
 
 For chips that support a plugin (ESP32-S3 with the NAND plugin, and the SPI chips with the SPI transport plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
 
 1. Build the base stub ELF.
-2. `tools/compute_plugin_addrs.py` reads the base ELF sizes and emits a linker fragment with the plugin load addresses and the addresses of the base stub functions that the plugin calls.
+2. `tools/compute_plugin_addrs.py` reads where the base ELF sections end and emits a linker fragment with the plugin load addresses and the addresses of the base symbols marked `STUB_EXPORT`.
 3. Build the plugin ELF from its sources and esp-stub-lib. It pulls in that fragment via `-T` and relinks automatically whenever the base stub changes.
 4. `tools/elf2json.py` embeds the plugin into the JSON stub file.
 

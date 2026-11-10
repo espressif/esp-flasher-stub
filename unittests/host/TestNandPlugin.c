@@ -35,6 +35,10 @@
 /* ---- Dummy plugin_table (required by nand_plugin.c's extern declaration) -- */
 plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE];
 
+/* ---- Dummy plugin .bss bounds (defined by the plugin linker script) ------ */
+uint32_t _bss_start;
+uint32_t _bss_end;
+
 /* ---- Forward declarations for functions under test ----------------------- */
 int nand_plugin_attach(uint8_t command, const uint8_t *data, uint32_t len, struct command_response_data *resp);
 int nand_plugin_read_bbm(uint8_t command, const uint8_t *data, uint32_t len, struct command_response_data *resp);

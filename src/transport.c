@@ -139,16 +139,7 @@ static const struct stub_transport_ops s_sdio_ops = {
 
 /* ---- Transport plugin hook ----------------------------------------------- */
 
-static bool s_transport_plugin_inactive(void)
-{
-    return false;
-}
-
-/* Non-zero default keeps the hook in .data, where the host patches it.
- * externally_visible stops LTO from folding the reads to the default. */
-STUB_EXPORT_DATA struct stub_transport_plugin transport_plugin = {
-    .is_active = s_transport_plugin_inactive,
-};
+STUB_EXPORT_DATA struct stub_transport_plugin transport_plugin;
 
 /* ---- Detection & initialisation ------------------------------------------ */
 
@@ -156,7 +147,7 @@ int stub_transport_detect(void)
 {
     /* The host loads a transport plugin only for the link it is using, so
      * check it before probing the built-in transports. */
-    if (transport_plugin.is_active()) {
+    if (transport_plugin.is_active != NULL && transport_plugin.is_active()) {
         return TRANSPORT_PLUGIN;
     }
     /* SDIO must be checked before USB: ROM may leave USB registers in an

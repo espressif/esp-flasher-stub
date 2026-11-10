@@ -25,9 +25,9 @@ The W25N01GVxxxG/T/R family is supported (1 Gbit, SPI NAND).
 
 ## Protocol Overview
 
-NAND support is implemented as a [plugin](../plugin-system.md) that runs on top of the base stub. The base stub JSON for ESP32-S3 includes a `plugins.nand` section with the plugin binary, load addresses, and a handler offset table. The host tool detects the plugin via the `plugins` key in the stub JSON and loads it when NAND operations are requested.
+NAND support is implemented as a [plugin](../plugin-system.md) that runs on top of the base stub. The base stub JSON for ESP32-S3 includes a `plugins.nand` section with the plugin binary, its load address and its start function, `entry`. The host tool detects the plugin via the `plugins` key in the stub JSON and loads it when NAND operations are requested.
 
-Loading sequence: the host parses the base stub JSON, patches the Function Pointer Table (FPT) in the base stub `.data` segment with the per-opcode handler addresses from the plugin, appends plugin BSS zeros to the data upload, and uploads the plugin `.text` immediately after the base stub `.text`. After that, the host issues plugin opcodes using the same transport framing as base stub commands: SLIP for UART/USB transports and raw frames for SDIO.
+Loading sequence: the host writes `plugins.nand.entry` into a slot of `plugin_start[]` in the base `.data`, and uploads `plugins.nand.text` at `plugins.nand.text_start` together with the base stub. At boot the stub runs `nand_plugin_start()`, which zeroes the plugin's `.bss` and writes the NAND handlers into the Function Pointer Table (FPT). After that, the host issues plugin opcodes using the same transport framing as base stub commands: SLIP for UART/USB transports and raw frames for SDIO and SPI.
 
 All NAND opcodes (`0xD5–0xDE`) are dispatched through the FPT. The handler signature is `plugin_cmd_handler_t` (see `plugin_table.h`).
 

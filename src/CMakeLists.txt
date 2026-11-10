@@ -30,8 +30,7 @@ set(STUB_JSON ${CMAKE_BINARY_DIR}/${STUB_JSON_NAME})
 #   stub ELF ─► compute_plugin_addrs.py ─► <name>_plugin_addrs.ld ─► plugin ELF ─► JSON
 #
 # compute_plugin_addrs.py emits a linker fragment (PLUGIN_TEXT_ADDR /
-# PLUGIN_BSS_ADDR, and the addresses of the base stub's STUB_EXPORT functions)
-# that the plugin's linker script pulls in via -T.  The plugin
+# PLUGIN_BSS_ADDR) that the plugin's linker script pulls in via -T.  The plugin
 # link gains a LINK_DEPENDS on that fragment, so it relinks whenever the base
 # stub's size changes.  Plugins stack: each plugin's fragment depends on the
 # base stub plus every preceding plugin ELF (passed via --after).
@@ -93,13 +92,12 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
         target_include_directories(${_plugin_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
         target_link_libraries(${_plugin_target} PRIVATE esp-stub-lib)
 
-        # Links with the global --gc-sections; handlers reachable only through
-        # the FPT are rooted by EXTERN() in the plugin linker script.
+        # Links with the global --gc-sections; the plugin linker script's ENTRY()
+        # roots the start function, which references everything the base calls.
         target_link_options(${_plugin_target} PRIVATE
             -L${LINKER_SCRIPTS_DIR}
             # Generated fragment first: defines PLUGIN_TEXT_ADDR / PLUGIN_BSS_ADDR
-            # used by the plugin linker script's MEMORY block, and the base stub
-            # functions the plugin calls.
+            # used by the plugin linker script's MEMORY block.
             "-T${_plugin_addrs_ld}"
             "-T${_PA_LINKER_SCRIPT}"
             -Wl,-Map=${CMAKE_BINARY_DIR}/${_plugin_target}.map
@@ -121,8 +119,6 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
     set(NAND_PLUGIN_CHIPS esp32s3)
     set(SPI_PLUGIN_CHIPS esp32c2 esp32c3 esp32p4-rev1 esp32p4 esp32s2 esp32s3)
 
-    # NAND stays first: esptool zeroes plugin BSS right after the base .data,
-    # which is only correct for the first plugin.
     if(TARGET_CHIP IN_LIST NAND_PLUGIN_CHIPS)
         stub_add_plugin(
             NAME          nand
@@ -145,7 +141,7 @@ endif()
 # ---------------------------------------------------------------------------
 # Stub JSON — one writer for every chip.  With no plugins the arg/dep lists are
 # empty and this is just `elf2json.py <stub.elf> <chip>.json`; with plugins it
-# also embeds each plugin's .text/.bss and handler offsets.
+# also embeds each plugin's .text, .data and entry addresses.
 # ---------------------------------------------------------------------------
 add_custom_command(
     OUTPUT  ${STUB_JSON}

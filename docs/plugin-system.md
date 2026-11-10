@@ -1,12 +1,12 @@
 # Plugin System
 
-The stub supports runtime-loadable plugins that extend its command set with new capabilities. Plugins are general-purpose — they can add support for external flash chips, memory devices, security features, or any other hardware functionality. A plugin can also provide the transport that links the stub to the host (see [Transport Plugins](#transport-plugins)). This document describes the plugin architecture, the build process, and how to add a new plugin.
+The stub supports plugins, separately built binaries that the host uploads with the stub to extend its command set with new capabilities. Plugins are general-purpose — they can add support for external flash chips, memory devices, security features, or any other hardware functionality. A plugin can also provide the transport that links the stub to the host (see [Transport Plugins](#transport-plugins)). This document describes the plugin architecture, the build process, and how to add a new plugin.
 
 ## Architecture
 
 ### Function Pointer Table (FPT)
 
-Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array of function pointers located in the base stub's `.data` segment. At startup all entries are initialized to `s_plugin_unsupported`, which sends an error response for any unknown opcode.
+Plugins are dispatched through a **Function Pointer Table (FPT)**: a global array of function pointers located in the base stub's `.data` segment. At startup all entries are initialized to `s_plugin_unsupported`, which sends an error response for any unknown opcode. A plugin's start function writes its handlers into the table (see [Start Function](#start-function)).
 
 Key constants (defined in `src/plugin_table.h`):
 
@@ -15,7 +15,7 @@ Key constants (defined in `src/plugin_table.h`):
 | `PLUGIN_FIRST_OPCODE` | `0xD5` | First opcode reserved for plugins |
 | `PLUGIN_LAST_OPCODE` | `0xEF` | Last opcode reserved for plugins |
 | `PLUGIN_TABLE_SIZE` | `27` | Number of FPT slots |
-| `plugin_table_offset` | *(computed)* | Byte offset of FPT within the `.data` segment, derived from the `plugin_table` ELF symbol at JSON generation time |
+| `PLUGIN_START_SLOTS` | `2` | Plugins that the host can load at the same time |
 
 ### Handler ABI
 
@@ -35,35 +35,29 @@ typedef int (*plugin_cmd_handler_t)(uint8_t command,
 
 The handler returns an `esp_response_code` value (`RESPONSE_SUCCESS` == 0 on success). The base dispatcher owns primary response framing and the post-process step — handlers must **not** send their own response frames. Post-process callbacks receive `struct cmd_ctx`, including `ctx->transport`, and should use that transport for streaming data and polling ACK frames.
 
-Plugin handlers must use **BSS-only global state** — no initialized (`.data`) globals and no `.rodata` constants. Only zero-initialized globals (`.bss`) and code/const data emitted into `.text` are permitted because only the `.text` and `.bss` sections are present in the plugin binary.
+### Plugin Memory
 
-### Keeping handler symbols in the plugin ELF
+A plugin can have `.text`, `.data` (which holds the `.rodata` constants too, see `common.ld`) and `.bss`. The host uploads `.text` and `.data`, but not `.bss`: the plugin zeroes its own `.bss`, from `_bss_start` to `_bss_end` of its own link. So a large buffer costs no upload time, and the host does not need to know where the plugin's `.bss` is.
 
-Handlers are only invoked at runtime after esptool patches the FPT in the base stub. The plugin link has no in-image call graph to those functions, so the linker may drop them under `-ffunction-sections` and `--gc-sections`.
+The plugin zeroes its `.bss` first in its start function, before any other plugin code runs, by calling `plugin_zero_bss()` from `plugin_table.h`.
 
-Every exported handler must:
+### Start Function
 
-1. Have **global linkage** and a stable symbol name (matching `PLUGIN_HANDLER_SYMBOLS` in `tools/elf2json.py`).
-2. Be listed with **`EXTERN(<symbol>)`** in the plugin linker script (see `src/ld/nand_plugin.ld`). `EXTERN` roots the symbol for the linker regardless of LTO or section layout.
+The entry point of every plugin is its start function. The host writes it into a free slot of `plugin_start[]` in the base `.data` (see [Upload Order](#upload-order)), and `esp_main` calls it after it zeroes the base `.bss`. The start function zeroes the plugin's `.bss` and registers the plugin. A command plugin writes each handler into its FPT slot; `plugin_table` is exported by the base stub (see [Calling the Base Stub](#calling-the-base-stub)):
 
 ```c
-int my_plugin_attach(uint8_t command, const uint8_t *data,
-                     uint32_t len, struct command_response_data *resp)
+void my_plugin_start(void)
 {
-    ...
+    plugin_zero_bss();
+
+    plugin_table[MY_PLUGIN_ATTACH - PLUGIN_FIRST_OPCODE] = my_plugin_attach;
+    plugin_table[MY_PLUGIN_READ - PLUGIN_FIRST_OPCODE] = my_plugin_read;
 }
 ```
 
-```ld
-ENTRY(my_plugin_attach)
-EXTERN(my_plugin_attach);
-EXTERN(my_plugin_read);
-/* one EXTERN per handler in PLUGIN_HANDLER_SYMBOLS */
-```
+A transport plugin fills the transport hook instead (see [Transport Plugins](#transport-plugins)). Start functions run before clock init and before any transport is up, so they only register and do not touch the hardware.
 
-If a handler is missing from the linker script, the plugin ELF may link successfully but `elf2json.py` fails during the post-build step with “missing handler symbol(s)”.
-
-The plugin linker script must set **`ENTRY(<attach_handler>)`** after `INCLUDE common.ld` so `ENTRY(esp_main)` from `common.ld` is overridden (required for Xtensa). `ENTRY` alone roots only the attach handler; list every other handler with `EXTERN`.
+The plugin linker script sets **`ENTRY(<start_function>)`** after `INCLUDE common.ld`, which overrides `ENTRY(esp_main)` from `common.ld` (required for Xtensa). The start function references everything that the base stub calls, so `--gc-sections` keeps it without `EXTERN()`.
 
 ### Dispatch
 
@@ -71,18 +65,22 @@ The plugin linker script must set **`ENTRY(<attach_handler>)`** after `INCLUDE c
 
 ### Upload Order
 
-Before uploading the stub, esptool (Python side):
+The host uploads the plugins together with the base stub, before it starts it:
 
-1. Patches the relevant FPT entries with the plugin handler addresses.
-2. Uploads in this order:
-   1. Base stub `.text`
-   2. Base stub `.data` + `.bss` zeros + plugin `.bss` zeros
-   3. Plugin `.text`
-   4. Calls `mem_finish` to start execution
+1. Writes each plugin's `entry` into a slot of `plugin_start[]`, at `plugin_start_offset + 4 * slot` in the base `.data`, as a 32-bit little-endian value. The host loads at most `plugin_start_slots` plugins at the same time, and unused slots stay zero.
+2. Uploads the base stub `.text` and the patched `.data`.
+3. Uploads each plugin's `text` to `text_start`, and its `data` to `data_start` if the plugin has `.data`.
+4. Starts the base stub at `entry`.
 
-Plugins stack, so a plugin's `.bss` follows the base `.data` directly only when every earlier plugin is loaded too. The linker can start a plugin's `.bss` above its computed address to meet the section alignment, for example 8 bytes for the ESP32-P4 SPI DMA descriptors. `elf2json.py` pads the base `.data` with zeros up to the `bss_start` of the first plugin, so the appended zeros land on that plugin's `.bss`. A host that loads a later plugin on its own must zero `bss_size` bytes at the plugin's `bss_start` instead.
+Plugins stack, so each plugin has its own memory and the host can load any of them on its own. Nothing runs a plugin that is uploaded after the stub starts.
 
-After startup, plugin opcodes use the same command dispatcher and transport operations as base commands. Plugins do not link against base SLIP helper symbols; streaming callbacks use `ctx->transport`.
+After startup, plugin opcodes use the same command dispatcher and transport operations as base commands. Streaming callbacks use `ctx->transport`, because the base stub selects the transport at runtime.
+
+### Calling the Base Stub
+
+A plugin can call base stub functions and use base stub variables that are marked `STUB_EXPORT` or `STUB_EXPORT_DATA` (`src/stub_export.h`). LTO makes every other base symbol local, so `compute_plugin_addrs.py` adds the address of every global function and variable of the base ELF to the plugin's `<name>_plugin_addrs.ld` fragment as `PROVIDE(<symbol> = <address>);`. The plugin calls them like any other function. A plugin is linked against one base stub build, so these addresses are always current.
+
+`STUB_EXPORT` includes `noinline`: the base keeps an out-of-line copy of an exported function anyway, and inlining it into the base callers only adds code.
 
 ### Xtensa IRAM Caveat
 
@@ -90,17 +88,16 @@ On Xtensa cores (ESP32-S2, ESP32-S3), IRAM only supports 32-bit stores. Writing 
 
 ## Build
 
-A plugin must be linked at a fixed address immediately after the base stub (and after any earlier plugins), so its load address depends on the base stub's `.text`/`.data`/`.bss` sizes. Those sizes are only known once the base stub is linked, so the address is computed at **build time**, after the base stub:
+A plugin must be linked at a fixed address immediately after the base stub (and after any earlier plugins), so its load address depends on where the base stub's `.text`, `.data` and `.bss` end. Those addresses are only known once the base stub is linked, so the address is computed at **build time**, after the base stub:
 
 ```
 stub-<chip>.elf                          (base stub linked)
             │
             ▼
 tools/compute_plugin_addrs.py
-  Reads the base ELF .text/.data/.bss sizes (plus any preceding
-  plugin ELFs passed via --after) and writes a linker fragment
-  <name>_plugin_addrs.ld:  PLUGIN_TEXT_ADDR / PLUGIN_BSS_ADDR
-  and PROVIDE(<symbol> = <addr>) for each global base stub symbol
+  Reads where the base ELF .text/.data/.bss end (and those of any
+  preceding plugin ELFs passed via --after) and writes a linker
+  fragment <name>_plugin_addrs.ld:  PLUGIN_TEXT_ADDR / PLUGIN_BSS_ADDR
             │
             ▼
 stub-<chip>-<name>-plugin.elf
@@ -112,26 +109,23 @@ stub-<chip>-<name>-plugin.elf
             ▼
 tools/elf2json.py
   Converts the base stub ELF to JSON and embeds each plugin's
-  .text and .bss metadata under the "plugins" key.
+  .text, .data and entry addresses under the "plugins" key.
 ```
 
-The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plugin_addrs.py` emits linker-script symbol assignments that the plugin linker script consumes in its `MEMORY` block. Multiple plugins **stack** — each plugin's fragment is computed from the base stub plus every preceding plugin ELF (`--after`).
-
-### Calling Base Stub Functions
-
-A plugin can call a base stub function directly. Mark the function definition in the base stub with `STUB_EXPORT` from `src/stub_export.h`, like the `frame_buffer_*` functions in `src/frame_buffer.c`, and declare it in a header that the plugin includes. Mark a variable with `STUB_EXPORT_DATA`, like `transport_plugin` in `src/transport.c`. LTO keeps the symbol global in the base ELF, and `compute_plugin_addrs.py` writes `PROVIDE(<symbol> = <address>)` for every global function and object of the base stub into the fragment. `PROVIDE` defines only the names that the plugin does not define itself, so the plugin's own copy of esp-stub-lib takes precedence. The base stub must use an exported symbol itself: `--gc-sections` removes it otherwise, and the plugin link fails with an undefined reference.
+The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plugin_addrs.py` emits linker-script symbol assignments that the plugin linker script consumes in its `MEMORY` block. Multiple plugins **stack** — each plugin's fragment is computed from the base stub plus every preceding plugin ELF (`--after`). The fragment uses the linked end addresses, not the section sizes, because the linker can move a section up to its alignment. For example, the ESP32-P4 SPI plugin's `.bss` holds DMA descriptors and is 8-byte aligned.
 
 ### Key Tool Files
 
 | File | Purpose |
 |---|---|
-| `tools/compute_plugin_addrs.py` | Reads base (+ preceding plugin) ELF section end addresses and emits a `<name>_plugin_addrs.ld` fragment defining `PLUGIN_TEXT_ADDR`/`PLUGIN_BSS_ADDR` and the base stub symbol addresses |
-| `tools/elf2json.py` | Converts ELF to JSON; embeds plugin `.text` and `.bss` size; pads the base `.data` up to the first plugin's `.bss` |
-| `src/plugin_table.h` | FPT ABI constants and `plugin_cmd_handler_t` typedef |
-| `src/stub_export.h` | `STUB_EXPORT` and `STUB_EXPORT_DATA` for base stub symbols that plugins use |
+| `tools/compute_plugin_addrs.py` | Reads where the base (+ preceding plugin) ELF sections end and emits a `<name>_plugin_addrs.ld` fragment defining `PLUGIN_TEXT_ADDR`/`PLUGIN_BSS_ADDR` and the addresses of the exported base symbols |
+| `src/stub_export.h` | `STUB_EXPORT` and `STUB_EXPORT_DATA`, which mark the base symbols that plugins can use |
+| `tools/elf2json.py` | Converts ELF to JSON; embeds plugin `.text`, `.data` and entry addresses |
+| `src/plugin_table.h` | FPT ABI constants, `plugin_cmd_handler_t` typedef and `plugin_start[]` |
 | `src/command_handler.c` | Opcode dispatch to FPT |
+| `src/main.c` | `plugin_start[]`; `esp_main` calls the plugin start functions |
 | `src/transport.h` / `src/transport.c` | Transport plugin hook (`transport_plugin`) and its ABI |
-| `src/nand_plugin.c` | Reference plugin (9 NAND handlers) |
+| `src/nand_plugin.c` | Reference plugin (10 NAND handlers and `nand_plugin_start`) |
 | `src/ld/nand_plugin.ld` | Reference plugin linker script |
 | `src/spi_transport_plugin.c` | Reference transport plugin (SPI slave) |
 | `src/ld/spi_plugin.ld` | Reference transport plugin linker script |
@@ -163,12 +157,13 @@ Pick unused opcodes from the `0xDE`–`0xEF` range (`0xD5`–`0xDD` are already 
 
 ### Step 2 — Create `src/spi_ram_plugin.c`
 
-Implement functions matching `plugin_cmd_handler_t`. Use only BSS globals (no `.data` initializers and no `.rodata` constants). Include `plugin_table.h` for the ABI typedef. Every handler that appears in `PLUGIN_HANDLER_SYMBOLS` must be a global function with a stable symbol name:
+Implement functions matching `plugin_cmd_handler_t` and a start function that registers them (see [Start Function](#start-function)). Include `plugin_table.h` for the ABI typedef and `plugin_table`:
 
 ```c
+#include "commands.h"
 #include "plugin_table.h"
 
-static uint32_t s_ram_size;   /* BSS — zero-initialized */
+static uint32_t s_ram_size;   /* .bss — zeroed by spi_ram_plugin_start() */
 
 int spi_ram_plugin_attach(uint8_t command, const uint8_t *data,
                           uint32_t len, struct command_response_data *resp)
@@ -185,11 +180,19 @@ int spi_ram_plugin_read(uint8_t command, const uint8_t *data,
     /* read, fill resp->data / resp->data_size, return status code */
     return RESPONSE_SUCCESS;
 }
+
+void spi_ram_plugin_start(void)
+{
+    plugin_zero_bss();
+
+    plugin_table[ESP_SPI_RAM_ATTACH - PLUGIN_FIRST_OPCODE] = spi_ram_plugin_attach;
+    plugin_table[ESP_SPI_RAM_READ - PLUGIN_FIRST_OPCODE] = spi_ram_plugin_read;
+}
 ```
 
 ### Step 3 — Create `src/ld/spi_ram_plugin.ld`
 
-Follow the pattern of `src/ld/nand_plugin.ld`. `PLUGIN_TEXT_ADDR` and `PLUGIN_BSS_ADDR` come from the generated `<name>_plugin_addrs.ld` fragment (pulled in via `-T`). Reuse `common.ld` for section layout; override the entry point and `EXTERN` every handler symbol:
+Follow the pattern of `src/ld/nand_plugin.ld`. `PLUGIN_TEXT_ADDR` and `PLUGIN_BSS_ADDR` come from the generated `<name>_plugin_addrs.ld` fragment (pulled in via `-T`). Reuse `common.ld` for section layout and set the start function as the entry point:
 
 ```ld
 MEMORY {
@@ -199,11 +202,7 @@ MEMORY {
 
 INCLUDE common.ld
 
-ENTRY(spi_ram_plugin_attach)
-EXTERN(spi_ram_plugin_attach);
-EXTERN(spi_ram_plugin_read);
-
-ASSERT(SIZEOF(.data) == 0, "Plugin must not have initialized .data — use BSS instead")
+ENTRY(spi_ram_plugin_start)
 ```
 
 ### Step 4 — Add Target HAL in `esp-stub-lib`
@@ -232,43 +231,35 @@ The list holds `TARGET_CHIP` values, so a chip revision such as `esp32p4-rev1` i
 
 Plugins load in the order `stub_add_plugin()` is called: the first is placed right after the base stub and each subsequent plugin stacks after the previous one.
 
-### Step 6 — Update `tools/elf2json.py`
+### Step 6 — Check the JSON
 
-Register the plugin handler symbols in `PLUGIN_HANDLER_SYMBOLS`. `elf2json.py` already accepts repeated `--plugin <name> <elf>` arguments, reads each plugin ELF's `.text` (padded to 4 bytes for Xtensa), resolves handler symbol addresses, and records the plugin in the output JSON under the `plugins` key:
+`elf2json.py` needs no change. It accepts repeated `--plugin <name> <elf>` arguments, reads each plugin ELF's `.text` and `.data` (padded to 4 bytes for Xtensa) and its entry point, and records the plugin in the output JSON under the `plugins` key. All addresses are absolute:
 
 ```json
 "plugins": {
     "spi_ram": {
         "text": "<base64-encoded padded .text>",
         "text_start": 1077944160,
-        "bss_size": 4096,
-        "bss_start": 1070292720,
-        "handlers": {
-            "0xDE": 0,
-            "0xDF": 128,
-            "0xE0": 256
-        }
+        "data": "<base64-encoded padded .data>",
+        "data_start": 1070293120,
+        "entry": 1077944800
     }
 }
 ```
 
-The `handlers` map contains opcode → offset-from-plugin-text-start pairs. Register the handler symbols in the `PLUGIN_HANDLER_SYMBOLS` dict at the top of `elf2json.py`. Each symbol named there must be implemented in the plugin C source and listed with `EXTERN()` in the plugin linker script.
+`data` and `data_start` appear only if the plugin has `.data`.
 
 ### Step 7 — Update esptool (Python Side)
 
-In `StubFlasher` (esptool `loader.py`):
-
-1. Detect the `"plugins"` key in the JSON stub file.
-2. Patch the FPT entries for the new opcodes with the plugin handler addresses (plugin text start + handler offset).
-3. Upload plugin `.bss` zeros appended to the base data segment, then upload plugin `.text` after the base text.
+In `StubFlasher` (esptool `loader.py`), load the plugin as [Upload Order](#upload-order) describes: write its `entry` into a `plugin_start[]` slot of the base data, and upload its `text` and `data` after the base stub.
 
 ## Transport Plugins
 
-A transport plugin moves a transport (for example SPI or SDIO) out of the base stub, so stubs for hosts that do not use it do not carry its code. It is an ordinary plugin: it is built with `stub_add_plugin()`, follows the same linker script and BSS-only rules, and is uploaded in the same way. In addition, it exports two functions that the base stub calls at startup. A plugin can export command handlers as well. The [SPI transport](plugins/spi-transport.md) (`src/spi_transport_plugin.c`) is the reference transport plugin.
+A transport plugin moves a transport (for example SPI or SDIO) out of the base stub, so stubs for hosts that do not use it do not carry its code. It is an ordinary plugin with a start function, but the start function fills the transport hook instead of the FPT. The [SPI transport](plugins/spi-transport.md) (`src/spi_transport_plugin.c`) is the reference transport plugin.
 
 ### Transport Hook
 
-The base stub holds one transport hook, `transport_plugin`, in its `.data` segment (`src/transport.h`):
+The base stub holds one transport hook, `transport_plugin`, in its `.bss` (`src/transport.h`):
 
 ```c
 struct stub_transport_plugin {
@@ -277,53 +268,28 @@ struct stub_transport_plugin {
 };
 ```
 
-By default `is_active` points to a function that returns `false`, so the stub uses only its built-in transports. When the host patches the hook:
+If no start function fills the hook, the stub uses only its built-in transports. When one does:
 
 1. `stub_transport_detect()` calls `is_active()` before it probes the built-in transports. If it returns `true`, the stub selects `TRANSPORT_PLUGIN`.
 2. `stub_transport_init()` calls `init()` at the point where a built-in transport would be initialized. `init()` initializes the hardware and returns the transport operations that the stub uses for the rest of the session.
 
-The hook has one slot, so the host loads at most one transport plugin — the one for the link it is using.
+Detection runs before clock init and `init()` after it, so the hook has two functions. It has one slot, so the host loads at most one transport plugin — the one for the link it is using.
 
 ### Plugin Rules
 
-- Export `<name>_transport_is_active` and `<name>_transport_init` as global functions with the signatures above, list both with `EXTERN()` in the plugin linker script, and register them in `PLUGIN_TRANSPORT_SYMBOLS` in `tools/elf2json.py`:
+- In the start function, zero the plugin's `.bss` and then write both functions into `transport_plugin`:
 
-  ```python
-  PLUGIN_TRANSPORT_SYMBOLS = {
-      'spi': {'is_active': 'spi_transport_is_active', 'init': 'spi_transport_init'},
+  ```c
+  void spi_transport_plugin_start(void)
+  {
+      plugin_zero_bss();
+
+      transport_plugin.is_active = spi_transport_is_active;
+      transport_plugin.init = spi_transport_init;
   }
   ```
 
-- Fill `struct stub_transport_ops` at runtime inside `init()` and keep it in BSS. A `static const` operations table goes to `.rodata`, which a plugin must not have.
-- Receive frames into the base stub's frame buffer by calling the `frame_buffer_*` functions from `src/frame_buffer.h` directly, as [Calling Base Stub Functions](#calling-base-stub-functions) describes. A second pair of frame buffers does not fit in RAM on every chip. `recv_release` can be `frame_buffer_reset`.
+- The operations table that `init()` returns can be `static const`.
+- Receive frames into the base stub's frame buffer by calling the exported `frame_buffer_*` functions (see [Calling the Base Stub](#calling-the-base-stub)). A second pair of frame buffers does not fit in RAM on every chip. `recv_release` can be `frame_buffer_reset`.
 
-### JSON and Host Side
-
-For a plugin registered in `PLUGIN_TRANSPORT_SYMBOLS`, `elf2json.py` adds the hook offsets to the plugin entry and the hook location to the top level:
-
-```json
-"transport_plugin_offset": 64,
-"plugins": {
-    "spi": {
-        "text": "...",
-        "text_start": 1077944160,
-        "bss_size": 116,
-        "bss_start": 1070292720,
-        "handlers": {},
-        "transport": {
-            "is_active": 52,
-            "init": 72
-        }
-    }
-}
-```
-
-- `transport_plugin_offset` is the byte offset of `transport_plugin` within the base `.data` segment.
-- `transport` holds offsets from the plugin `.text` start, like `handlers`.
-
-These keys appear only when the JSON embeds a transport plugin. To load a transport plugin, the host does the same as for any plugin (see [Step 7](#step-7--update-esptool-python-side)) and also writes these two 32-bit little-endian values into the base data segment:
-
-1. `text_start + transport.is_active` at `transport_plugin_offset`.
-2. `text_start + transport.init` at `transport_plugin_offset + 4`.
-
-A host that does not know these keys leaves the hook unpatched, and the stub falls back to its built-in transports.
+The JSON entry and the upload are the same as for any plugin.
