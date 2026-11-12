@@ -3,7 +3,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  *
- * NAND flash plugin — compiled as a separate binary loaded at runtime by esptool.
+ * NAND flash plugin — compiled as a separate binary that the host uploads with
+ * the base stub. esp_main starts it with nand_plugin_start().
  *
  * Streaming post-process callbacks use ctx->transport, so the plugin stays
  * independent of the concrete link protocol selected by the base stub.
@@ -551,4 +552,22 @@ int nand_plugin_read_page_debug(uint8_t command, const uint8_t *data, uint32_t l
     memcpy(resp->data, page_buf, READ_PAGE_DEBUG_PREVIEW_SIZE);
     resp->data_size = READ_PAGE_DEBUG_PREVIEW_SIZE;
     return RESPONSE_SUCCESS;
+}
+
+/* ---- Plugin start ----------------------------------------------------------- */
+
+void nand_plugin_start(void)
+{
+    plugin_zero_bss();
+
+    plugin_table[ESP_SPI_NAND_ATTACH - PLUGIN_FIRST_OPCODE] = nand_plugin_attach;
+    plugin_table[ESP_SPI_NAND_READ_BBM - PLUGIN_FIRST_OPCODE] = nand_plugin_read_bbm;
+    plugin_table[ESP_SPI_NAND_WRITE_BBM - PLUGIN_FIRST_OPCODE] = nand_plugin_write_bbm;
+    plugin_table[ESP_SPI_NAND_READ_FLASH - PLUGIN_FIRST_OPCODE] = nand_plugin_read_flash;
+    plugin_table[ESP_SPI_NAND_WRITE_FLASH_BEGIN - PLUGIN_FIRST_OPCODE] = nand_plugin_write_flash_begin;
+    plugin_table[ESP_SPI_NAND_WRITE_FLASH_DATA - PLUGIN_FIRST_OPCODE] = nand_plugin_write_flash_data;
+    plugin_table[ESP_SPI_NAND_WRITE_FLASH_END - PLUGIN_FIRST_OPCODE] = nand_plugin_write_flash_end;
+    plugin_table[ESP_SPI_NAND_ERASE_FLASH - PLUGIN_FIRST_OPCODE] = nand_plugin_erase_flash;
+    plugin_table[ESP_SPI_NAND_ERASE_REGION - PLUGIN_FIRST_OPCODE] = nand_plugin_erase_region;
+    plugin_table[ESP_SPI_NAND_READ_PAGE_DEBUG - PLUGIN_FIRST_OPCODE] = nand_plugin_read_page_debug;
 }

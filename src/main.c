@@ -12,6 +12,8 @@
 #include <esp-stub-lib/uart.h>
 #include <esp-stub-lib/usb_otg.h>
 #include "command_handler.h"
+#include "plugin_table.h"
+#include "stub_export.h"
 #include "transport.h"
 
 #ifdef ESP8266
@@ -28,6 +30,9 @@ __asm__(
 void esp_main(void) __attribute__((used, externally_visible));
 #endif //ESP8266
 
+/* In .data, because the host patches it. */
+STUB_EXPORT_DATA __attribute__((section(".data"))) plugin_start_t plugin_start[PLUGIN_START_SLOTS];
+
 void esp_main(void)
 {
     extern uint32_t _bss_start;
@@ -36,6 +41,12 @@ void esp_main(void)
     /* Zero BSS section */
     for (uint32_t *p = &_bss_start; p < &_bss_end; p++) {
         *p = 0;
+    }
+
+    for (size_t i = 0; i < PLUGIN_START_SLOTS; i++) {
+        if (plugin_start[i] != NULL) {
+            plugin_start[i]();
+        }
     }
 
     const int transport = stub_transport_detect();

@@ -7,46 +7,19 @@ import argparse
 import base64
 import json
 import sys
-from pathlib import Path
 
-from typing import Dict, Optional, Union
+from typing import Dict, List, Tuple, Union
 
 try:
     from elftools.elf.elffile import ELFFile as PyELFFile
-    from elftools.elf.sections import SymbolTableSection
 except ImportError:
     raise SystemExit('pyelftools not found. Install with: pip install pyelftools')
 
 
-# Registry of plugin handler symbols (must match EXTERN() in each plugin .ld).
-# Add a new entry here when adding a new plugin.
-PLUGIN_HANDLER_SYMBOLS: Dict[str, Dict[str, str]] = {
-    'nand': {
-        '0xD5': 'nand_plugin_attach',
-        '0xD6': 'nand_plugin_read_bbm',
-        '0xD7': 'nand_plugin_write_bbm',
-        '0xD8': 'nand_plugin_read_flash',
-        '0xD9': 'nand_plugin_write_flash_begin',
-        '0xDA': 'nand_plugin_write_flash_data',
-        '0xDE': 'nand_plugin_write_flash_end',
-        '0xDB': 'nand_plugin_erase_flash',
-        '0xDC': 'nand_plugin_erase_region',
-        '0xDD': 'nand_plugin_read_page_debug',
-    },
-}
-
-# Registry of transport plugin hook symbols (must match EXTERN() in each plugin .ld).
-# Format: '<plugin>': {'is_active': '<symbol>', 'init': '<symbol>'}
-# Add a new entry here when adding a new transport plugin.
-PLUGIN_TRANSPORT_SYMBOLS: Dict[str, Dict[str, str]] = {
-    'spi': {'is_active': 'spi_transport_is_active', 'init': 'spi_transport_init'},
-}
-
-PLUGIN_FIRST_OPCODE = 0xD5
-PLUGIN_LAST_OPCODE = 0xEF  # Must match last reserved opcode in src/plugin_table.h
-PLUGIN_TABLE_ENTRIES = (
-    PLUGIN_LAST_OPCODE - PLUGIN_FIRST_OPCODE + 1
-)  # Must match PLUGIN_TABLE_SIZE in src/plugin_table.h
+def _pad4(data: bytes) -> bytes:
+    """Pad to a multiple of 4 bytes: Xtensa IRAM only supports 32-bit stores,
+    and the ROM memcpy tail-byte loop would fault."""
+    return data + b'\x00' * (-len(data) % 4)
 
 
 class ByteEncoder(json.JSONEncoder):
@@ -58,46 +31,63 @@ class ByteEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def _get_symbol_addr(elf: PyELFFile, name: str) -> Optional[int]:
-    """Return the VMA of symbol *name* in a pyelftools ELFFile, or None."""
-    for section in elf.iter_sections():
-        if not isinstance(section, SymbolTableSection):
-            continue
-        for sym in section.iter_symbols():
-            if sym.name == name and sym['st_value'] != 0:
-                return int(sym['st_value'])
-    return None
+def _get_symbol(elf: PyELFFile, name: str):
+    """Return symbol *name* of a pyelftools ELFFile, or None."""
+    symtab = elf.get_section_by_name('.symtab')
+    syms = symtab.get_symbol_by_name(name) if symtab is not None else None
+    return syms[0] if syms else None
 
 
-def get_stub_sections(
-    elf_file: str,
-    plugin_name: Optional[str] = None,
-    plugin_elf_file: Optional[str] = None,
-    plugins: Optional[list] = None,
-) -> Dict[str, Union[int, bytes]]:
+def _get_plugin(name: str, elf_file: str) -> Dict[str, Union[int, bytes]]:
+    """A plugin's JSON entry. All addresses are absolute.
+
+    The host uploads text and data with the base stub, but not the BSS, which
+    the plugin zeroes itself, and writes entry into the base plugin_start.
+    """
+    with open(elf_file, 'rb') as f:
+        elf = PyELFFile(f)
+        text = elf.get_section_by_name('.text')
+        if text is None:
+            raise SystemExit(f'ERROR: .text not found in plugin ELF {elf_file}')
+        plugin: Dict[str, Union[int, bytes]] = {
+            'text': _pad4(bytes(text.data())),
+            'text_start': text['sh_addr'],
+        }
+
+        data = elf.get_section_by_name('.data')
+        if data is not None and data['sh_size'] > 0:
+            plugin['data'] = _pad4(bytes(data.data()))
+            plugin['data_start'] = data['sh_addr']
+
+        # common.ld places .rodata in .data; a separate .rodata would not be uploaded.
+        rodata = elf.get_section_by_name('.rodata')
+        if rodata is not None and rodata['sh_size'] > 0:
+            raise SystemExit(
+                f"ERROR: Plugin '{name}' has a .rodata section outside .data ({rodata['sh_size']} bytes). "
+                f'Its linker script must INCLUDE common.ld.'
+            )
+
+        plugin['entry'] = elf.header.e_entry
+    return plugin
+
+
+def get_stub_sections(elf_file: str, plugins: List[Tuple[str, str]]) -> Dict[str, object]:
     with open(elf_file, 'rb') as f:
         elf = PyELFFile(f)
 
         t = elf.get_section_by_name('.text')
         if t is None:
             raise SystemExit(f'ERROR: .text section not found in {elf_file}')
-        stub = {
+        stub: Dict[str, object] = {
             'entry': elf.header.e_entry,
-            'text': bytes(t.data()),
+            'text': _pad4(bytes(t.data())),
             'text_start': t['sh_addr'],
         }
-        stub_text_len = len(stub['text'])
 
-        data_addr = None
         d = elf.get_section_by_name('.data')
         if d is not None:
-            data_bytes = bytes(d.data())
-            overreach = len(data_bytes) % 4
-            if overreach:
-                data_bytes += b'\x00' * (4 - overreach)
-            stub['data'] = data_bytes
+            stub['data'] = _pad4(bytes(d.data()))
             stub['data_start'] = d['sh_addr']
-            data_addr = d['sh_addr']
         else:
             print(f'WARNING: {elf_file} does not contain a .data section.', file=sys.stderr)
 
@@ -107,163 +97,19 @@ def get_stub_sections(
         else:
             print(f'WARNING: {elf_file} does not contain a .bss section.', file=sys.stderr)
 
-    # Align .text to 4-byte boundary
-    bytes_overreach = stub_text_len % 4
-    if bytes_overreach != 0:
-        stub['text'] += b'\x00' * (4 - bytes_overreach)
+        plugin_start = _get_symbol(elf, 'plugin_start')
 
-    # ---- Plugin support -----------------------------------------------------
-    # Normalise: accept either the legacy (plugin_name, plugin_elf_file) pair
-    # or the new list-of-pairs form via the `plugins` argument.
-    if plugins is None:
-        plugins = []
-    if plugin_name is not None and plugin_elf_file is not None:
-        plugins = [(plugin_name, plugin_elf_file)] + [p for p in plugins if p != (plugin_name, plugin_elf_file)]
+    if not plugins:
+        return stub
 
-    if plugins:
-        if data_addr is None:
-            print('WARNING: Cannot add plugin metadata — no .data section in base stub.', file=sys.stderr)
-        else:
-            # Find plugin_table symbol to compute FPT offset (done once for all plugins)
-            plugin_table_offset = None
-            transport_plugin_offset = None
-            with open(elf_file, 'rb') as f:
-                py_elf = PyELFFile(f)
-                addr = _get_symbol_addr(py_elf, 'plugin_table')
-                if addr is not None:
-                    plugin_table_offset = addr - data_addr
-                addr = _get_symbol_addr(py_elf, 'transport_plugin')
-                if addr is not None:
-                    transport_plugin_offset = addr - data_addr
-
-            if plugin_table_offset is None:
-                print(
-                    'ERROR: plugin_table symbol not found in base stub — cannot generate plugin metadata.',
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-
-            # Validate that plugin_table resides within the base stub .data section.
-            data_len = len(stub['data'])
-            if not (0 <= plugin_table_offset < data_len):
-                print(
-                    f'ERROR: plugin_table offset {plugin_table_offset} is outside base stub .data '
-                    f'section (size {data_len}). Cannot generate plugin metadata.',
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-            stub['plugin_first_opcode'] = PLUGIN_FIRST_OPCODE
-            stub['plugin_table_offset'] = plugin_table_offset
-            stub['plugin_table_entries'] = PLUGIN_TABLE_ENTRIES
-            stub['plugins'] = {}
-
-            for p_name, p_elf_file in plugins:
-                # Extract plugin text, bss, and handler offsets
-                if not Path(p_elf_file).is_file():
-                    raise SystemExit(f'ERROR: Plugin ELF not found: {p_elf_file}')
-                with open(p_elf_file, 'rb') as pf:
-                    p_elf = PyELFFile(pf)
-                    p_text_sec = p_elf.get_section_by_name('.text')
-                    p_bss_sec = p_elf.get_section_by_name('.bss')
-
-                    if p_text_sec is None:
-                        raise SystemExit(f'ERROR: .text not found in plugin ELF {p_elf_file}')
-
-                    p_text_data = bytes(p_text_sec.data())
-                    p_text_start = p_text_sec['sh_addr']
-                    p_bss_size = p_bss_sec['sh_size'] if p_bss_sec else 0
-                    p_bss_start = p_bss_sec['sh_addr'] if p_bss_sec else None
-
-                    # Guard against silent data loss: plugin .data/.rodata are never
-                    # uploaded, so any initialized globals would be silently missing.
-                    p_data_sec = p_elf.get_section_by_name('.data')
-                    if p_data_sec is not None and p_data_sec['sh_size'] > 0:
-                        raise SystemExit(
-                            f"ERROR: Plugin '{p_name}' has a non-empty .data section "
-                            f'({p_data_sec["sh_size"]} bytes).\n'
-                            f'Plugin .data/.rodata are not uploaded. '
-                            f'Use BSS or constants-in-text instead.'
-                        )
-
-                    p_rodata_sec = p_elf.get_section_by_name('.rodata')
-                    if p_rodata_sec is not None and p_rodata_sec['sh_size'] > 0:
-                        raise SystemExit(
-                            f"ERROR: Plugin '{p_name}' has a non-empty .rodata section "
-                            f'({p_rodata_sec["sh_size"]} bytes).\n'
-                            f'Plugin .data/.rodata are not uploaded. '
-                            f'Use BSS or constants-in-text instead.'
-                        )
-
-                    # Align plugin .text to 4-byte boundary: Xtensa IRAM only supports
-                    # 32-bit-width stores; the ROM memcpy tail-byte loop would fault.
-                    overreach = len(p_text_data) % 4
-                    if overreach != 0:
-                        p_text_data += b'\x00' * (4 - overreach)
-
-                    handler_map = PLUGIN_HANDLER_SYMBOLS.get(p_name, {})
-                    transport_map = PLUGIN_TRANSPORT_SYMBOLS.get(p_name, {})
-                    if not handler_map and not transport_map:
-                        print(
-                            f"WARNING: unknown plugin '{p_name}' — no handler symbols defined",
-                            file=sys.stderr,
-                        )
-                    handlers: Dict[str, int] = {}
-                    missing_symbols = []
-                    for opcode_str, sym_name in handler_map.items():
-                        sym_addr = _get_symbol_addr(p_elf, sym_name)
-                        if sym_addr is None:
-                            missing_symbols.append(sym_name)
-                            continue
-                        handlers[opcode_str] = sym_addr - p_text_start
-
-                    transport: Dict[str, int] = {}
-                    for hook, sym_name in transport_map.items():
-                        sym_addr = _get_symbol_addr(p_elf, sym_name)
-                        if sym_addr is None:
-                            missing_symbols.append(sym_name)
-                            continue
-                        transport[hook] = sym_addr - p_text_start
-
-                    if missing_symbols:
-                        raise SystemExit(
-                            f"ERROR: Plugin '{p_name}': missing handler symbol(s) in {p_elf_file}: "
-                            + ', '.join(missing_symbols)
-                        )
-
-                stub['plugins'][p_name] = {
-                    'text': p_text_data,
-                    'text_start': p_text_start,
-                    'bss_size': p_bss_size,
-                    'handlers': handlers,
-                }
-                # Plugins stack, so a plugin's BSS follows the base .data only
-                # when every earlier plugin is loaded as well.
-                if p_bss_start is not None:
-                    stub['plugins'][p_name]['bss_start'] = p_bss_start
-
-                if transport:
-                    if transport_plugin_offset is None or not (0 <= transport_plugin_offset < data_len):
-                        raise SystemExit(
-                            f"ERROR: Plugin '{p_name}' is a transport plugin, but the transport_plugin "
-                            f'symbol is missing or outside base stub .data (size {data_len}).'
-                        )
-                    stub['transport_plugin_offset'] = transport_plugin_offset
-                    stub['plugins'][p_name]['transport'] = transport
-
-            # esptool zeroes plugin BSS by appending it to the base .data, so the
-            # base .data must end where the first plugin's BSS starts.  The linker
-            # can start that BSS above the base .data end to meet its alignment
-            # (e.g. P4 DMA buffers); fill the gap with zeros.
-            first_plugin = stub['plugins'][plugins[0][0]]
-            if first_plugin['bss_size'] and 'bss_start' in first_plugin:
-                gap = first_plugin['bss_start'] - (data_addr + len(stub['data']))
-                if gap < 0:
-                    raise SystemExit(
-                        f"ERROR: Plugin '{plugins[0][0]}' BSS at 0x{first_plugin['bss_start']:08X} "
-                        f'overlaps the base stub .data.'
-                    )
-                stub['data'] += b'\x00' * gap
-
+    if d is None or plugin_start is None:
+        raise SystemExit('ERROR: Plugins need the plugin_start symbol in the base stub .data.')
+    offset = plugin_start['st_value'] - d['sh_addr']
+    if not 0 <= offset <= d['sh_size'] - plugin_start['st_size']:
+        raise SystemExit(f'ERROR: plugin_start is outside the base stub .data (size {d["sh_size"]}).')
+    stub['plugin_start_offset'] = offset
+    stub['plugin_start_slots'] = plugin_start['st_size'] // 4
+    stub['plugins'] = {name: _get_plugin(name, path) for name, path in plugins}
     return stub
 
 
@@ -281,7 +127,7 @@ def main():
     )
     args = parser.parse_args()
 
-    stub = get_stub_sections(args.elf_file, plugins=args.plugin)
+    stub = get_stub_sections(args.elf_file, args.plugin)
 
     with open(args.json_file, 'w') as json_file:
         json.dump(stub, json_file, cls=ByteEncoder, indent=4)

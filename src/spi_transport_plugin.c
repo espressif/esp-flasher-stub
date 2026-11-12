@@ -13,12 +13,11 @@
 #include <esp-stub-lib/err.h>
 #include <esp-stub-lib/slave_spi.h>
 #include "frame_buffer.h"
+#include "plugin_table.h"
 #include "transport.h"
 
 // SPI TX sends at most 4092 bytes per frame.
 #define SPI_MAX_TX_FRAME_SIZE 4092U
-
-static struct stub_transport_ops s_ops;
 
 /* ---- SPI transport ops ---------------------------------------------------- */
 /* Like SDIO, SPI bypasses SLIP: DMA writes a whole frame into the armed buffer
@@ -60,22 +59,30 @@ static bool spi_send_frame(const void *data, size_t len)
 
 /* ---- Transport plugin hook ------------------------------------------------ */
 
-bool spi_transport_is_active(void)
+static const struct stub_transport_ops s_ops = {
+    .recv_poll = spi_recv_poll,
+    .recv_release = frame_buffer_reset,
+    .send_frame = spi_send_frame,
+    .max_tx_frame_size = SPI_MAX_TX_FRAME_SIZE,
+};
+
+static bool spi_transport_is_active(void)
 {
     return stub_lib_slave_spi_is_active();
 }
 
-const struct stub_transport_ops *spi_transport_init(void)
+static const struct stub_transport_ops *spi_transport_init(void)
 {
-    /* Filled at runtime: a const ops table would land in .rodata, which a
-     * plugin must not have. */
-    s_ops.recv_poll = spi_recv_poll;
-    s_ops.recv_release = frame_buffer_reset;
-    s_ops.send_frame = spi_send_frame;
-    s_ops.max_tx_frame_size = SPI_MAX_TX_FRAME_SIZE;
-
     stub_lib_slave_spi_init();
     /* Arm the first DMA receive buffer immediately after init. */
     spi_arm();
     return &s_ops;
+}
+
+void spi_transport_plugin_start(void)
+{
+    plugin_zero_bss();
+
+    transport_plugin.is_active = spi_transport_is_active;
+    transport_plugin.init = spi_transport_init;
 }

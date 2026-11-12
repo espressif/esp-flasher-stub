@@ -7,7 +7,7 @@
 
 Reads JSON files produced by elf2json.py from two directory trees (typically
 the latest master build and the current PR build) and prints a Markdown table
-comparing the sizes of each segment (text, data, plugin text) per chip.
+comparing the sizes of each segment (text, data, plugin text and data) per chip.
 """
 
 import argparse
@@ -56,6 +56,8 @@ def get_segment_sizes(json_path: Path) -> dict[str, int]:
             continue
         if 'text' in plugin_data:
             sizes[f'{plugin_name} plugin'] = len(base64.b64decode(plugin_data['text']))
+        if 'data' in plugin_data:
+            sizes[f'{plugin_name} plugin data'] = len(base64.b64decode(plugin_data['data']))
 
     return sizes
 

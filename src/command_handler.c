@@ -21,6 +21,7 @@
 #include "command_handler.h"
 #include "endian_utils.h"
 #include "plugin_table.h"
+#include "stub_export.h"
 
 #define DIRECTION_REQUEST 0x00
 #define DIRECTION_RESPONSE 0x01
@@ -79,8 +80,8 @@ static int s_plugin_unsupported(uint8_t command,
     return RESPONSE_CMD_NOT_IMPLEMENTED;
 }
 
-/* Function Pointer Table — entries are patched by esptool when a plugin is loaded */
-plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE] = {
+/* Function Pointer Table — a plugin's start function fills its entries */
+STUB_EXPORT_DATA plugin_cmd_handler_t plugin_table[PLUGIN_TABLE_SIZE] = {
     [0 ...(PLUGIN_TABLE_SIZE - 1)] = s_plugin_unsupported
 };
 
