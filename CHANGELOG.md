@@ -1,3 +1,21 @@
+## v2.0.0 (2026-11-13)
+
+### 🚨 Breaking changes
+
+- The stub talks over SDIO only if the host loads the sdio
+plugin. Hosts that upload only the base stub can no longer use SDIO. *(Vojtech Piroch - 2d3df4e)*
+- esptool loads NAND only after it writes the plugin entry
+into plugin_start[] at plugin_start_offset. esptool releases that patch
+the FPT refuse to load NAND with this stub. *(Jaroslav Burian - 5b20a18)*
+
+### ✨ New Features
+
+- **sdio**: Move SDIO transport into plugin *(Vojtech Piroch - 2d3df4e)*
+- **plugin**: Let the base stub start plugins at boot *(Jaroslav Burian - 5b20a18)*
+- **plugin**: Add support for transport plugins *(Vojtech Piroch - dff8896)*
+- Bump esp-stub-lib for ESP32-C61 SDIO support *(Vojtech Piroch - 23177e7)*
+
+
 ## v1.5.0 (2026-11-04)
 
 ### ✨ New Features
