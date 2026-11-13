@@ -69,7 +69,7 @@ void esp_main(void)
     // ROM link baud, else UART logging and the OHAI/handshake are corrupted.
     stub_lib_uart_rominit_set_baudrate(UART_NUM_0, rom_baudrate);
 #else
-    if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG || transport == TRANSPORT_SDIO) {
+    if (transport == TRANSPORT_USB_OTG || transport == TRANSPORT_USB_SERIAL_JTAG || transport == TRANSPORT_PLUGIN) {
         stub_lib_clock_init();
     }
 #endif

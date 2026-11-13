@@ -118,6 +118,7 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
     # ---- Plugins available for this chip ------------------------------------
     set(NAND_PLUGIN_CHIPS esp32s3)
     set(SPI_PLUGIN_CHIPS esp32c2 esp32c3 esp32p4-rev1 esp32p4 esp32s2 esp32s3)
+    set(SDIO_PLUGIN_CHIPS esp32c5 esp32c6 esp32c61)
 
     if(TARGET_CHIP IN_LIST NAND_PLUGIN_CHIPS)
         stub_add_plugin(
@@ -135,6 +136,18 @@ if(NOT TARGET_CHIP STREQUAL "esp8266" AND NOT TARGET_CHIP STREQUAL "esp32")
             SOURCES       spi_transport_plugin.c
             LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/spi_plugin.ld
         )
+    else()
+        message(STATUS "No SPI support for ${TARGET_CHIP}, skipping SPI plugin build.")
+    endif()
+
+    if(TARGET_CHIP IN_LIST SDIO_PLUGIN_CHIPS)
+        stub_add_plugin(
+            NAME          sdio
+            SOURCES       sdio_transport_plugin.c
+            LINKER_SCRIPT ${LINKER_SCRIPTS_DIR}/sdio_plugin.ld
+        )
+    else()
+        message(STATUS "No SDIO support for ${TARGET_CHIP}, skipping SDIO plugin build.")
     endif()
 endif()
 
