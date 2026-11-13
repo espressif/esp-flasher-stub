@@ -129,6 +129,8 @@ The generated fragment replaces the older `-Wl,--defsym` approach: `compute_plug
 | `src/ld/nand_plugin.ld` | Reference plugin linker script |
 | `src/spi_transport_plugin.c` | Reference transport plugin (SPI slave) |
 | `src/ld/spi_plugin.ld` | Reference transport plugin linker script |
+| `src/sdio_transport_plugin.c` | SDIO transport plugin |
+| `src/ld/sdio_plugin.ld` | SDIO transport plugin linker script |
 
 ## Chip Support
 
@@ -138,6 +140,7 @@ Plugins are not supported on ESP8266 or ESP32. All other chips (ESP32-S2, ESP32-
 |---|---|
 | [NAND](plugins/nand-flash.md) | ESP32-S3 |
 | [SPI transport](plugins/spi-transport.md) | ESP32-C2, ESP32-C3, ESP32-P4, ESP32-S2, ESP32-S3 |
+| [SDIO transport](plugins/sdio-transport.md) | ESP32-C5, ESP32-C6, ESP32-C61 |
 
 On ESP32-S3 the SPI transport plugin is stacked after the NAND plugin.
 
@@ -255,7 +258,7 @@ In `StubFlasher` (esptool `loader.py`), load the plugin as [Upload Order](#uploa
 
 ## Transport Plugins
 
-A transport plugin moves a transport (for example SPI or SDIO) out of the base stub, so stubs for hosts that do not use it do not carry its code. It is an ordinary plugin with a start function, but the start function fills the transport hook instead of the FPT. The [SPI transport](plugins/spi-transport.md) (`src/spi_transport_plugin.c`) is the reference transport plugin.
+A transport plugin moves a transport (for example SPI or SDIO) out of the base stub, so stubs for hosts that do not use it do not carry its code. It is an ordinary plugin with a start function, but the start function fills the transport hook instead of the FPT. The [SPI transport](plugins/spi-transport.md) (`src/spi_transport_plugin.c`) is the reference transport plugin; the [SDIO transport](plugins/sdio-transport.md) (`src/sdio_transport_plugin.c`) follows the same pattern.
 
 ### Transport Hook
 
@@ -273,7 +276,7 @@ If no start function fills the hook, the stub uses only its built-in transports.
 1. `stub_transport_detect()` calls `is_active()` before it probes the built-in transports. If it returns `true`, the stub selects `TRANSPORT_PLUGIN`.
 2. `stub_transport_init()` calls `init()` at the point where a built-in transport would be initialized. `init()` initializes the hardware and returns the transport operations that the stub uses for the rest of the session.
 
-Detection runs before clock init and `init()` after it, so the hook has two functions. It has one slot, so the host loads at most one transport plugin — the one for the link it is using.
+Detection runs before clock init and `init()` after it, so the hook has two functions. The base stub raises the CPU clock before it calls `init()`, so the plugin must not call `stub_lib_clock_init()`: its own copy of esp-stub-lib would set the clock, but the base stub would not see the new frequency. It has one slot, so the host loads at most one transport plugin — the one for the link it is using.
 
 ### Plugin Rules
 

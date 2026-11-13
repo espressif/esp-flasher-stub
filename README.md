@@ -13,6 +13,7 @@ This project has replaced the deprecated [legacy flasher stub of esptool](https:
 - [Plugin System](docs/plugin-system.md) - Runtime-loadable plugin architecture and guide for adding new plugins
 - [NAND Flash Support](docs/plugins/nand-flash.md) - NAND flash programming support (preview)
 - [SPI Transport](docs/plugins/spi-transport.md) - SPI slave transport plugin for esp-serial-flasher
+- [SDIO Transport](docs/plugins/sdio-transport.md) - SDIO transport plugin
 
 ## Supported Chips
 
@@ -98,6 +99,10 @@ ninja -C build
 ### SPI Transport
 
 The SPI transport lets [esp-serial-flasher](https://github.com/espressif/esp-serial-flasher) talk to the stub over the SPI download interface. It is a [transport plugin](docs/plugins/spi-transport.md), so the stub carries its code only when the host loads it. The regular build embeds it in `<target>.json` for every chip that supports it; no build option is needed.
+
+### SDIO Transport
+
+The SDIO transport lets a host talk to the stub over the SDIO download interface. Like SPI, it is a [transport plugin](docs/plugins/sdio-transport.md) that the regular build embeds in `<target>.json` for ESP32-C5, ESP32-C6 and ESP32-C61.
 
 ## How to Use with Esptool
 

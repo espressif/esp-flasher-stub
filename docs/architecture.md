@@ -2,7 +2,7 @@
 
 ## Overview
 
-The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) through a transport abstraction to perform flash programming and other operations. UART, USB-Serial-JTAG, and USB-OTG carry [SLIP](https://datatracker.ietf.org/doc/html/rfc1055)-framed commands; SDIO and SPI carry raw command frames. SPI is a [transport plugin](plugins/spi-transport.md) that the host loads only when it uses SPI.
+The esp-flasher-stub firmware is a bare-metal C application that runs on ESP chip RAM. It communicates with a host tool (esptool) through a transport abstraction to perform flash programming and other operations. UART, USB-Serial-JTAG, and USB-OTG carry [SLIP](https://datatracker.ietf.org/doc/html/rfc1055)-framed commands; SDIO and SPI carry raw command frames. SDIO and SPI are transport plugins ([SDIO](plugins/sdio-transport.md), [SPI](plugins/spi-transport.md)) that the host loads only when it uses them.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -48,6 +48,7 @@ src/
 ├── stub_export.h       Marks the base symbols that plugins can use
 ├── nand_plugin.c       NAND flash plugin (10 handlers)
 ├── spi_transport_plugin.c SPI slave transport plugin
+├── sdio_transport_plugin.c SDIO transport plugin
 ├── transport.c / .h    Transport detection, initialization, and RX/TX operations
 ├── endian_utils.h      Byte-order conversion helpers
 └── ld/                 Linker scripts (one per chip + common.ld + one per plugin)
@@ -75,6 +76,8 @@ The build requires the `-DTARGET_CHIP=<chip>` parameter. The CMake configuration
 
 The SPI transport is built as a plugin (`spi_transport_plugin.c`) for the chips whose SPI slave driver exists in esp-stub-lib: ESP32-S2, ESP32-S3, ESP32-C2, ESP32-C3 and ESP32-P4. The frame buffers always use the SPI slave DMA alignment (`SLAVE_SPI_DMA_ALIGN`), because the plugin receives into them and cannot change the base stub's layout.
 
+The SDIO transport is built as a plugin (`sdio_transport_plugin.c`) for the chips whose SDIO slave driver exists in esp-stub-lib: ESP32-C5, ESP32-C6 and ESP32-C61.
+
 SPI slave-to-host frames have a maximum size of 4092 bytes. The transmit path uses one DMA descriptor with a 12-bit size field and a 4-byte-aligned data buffer. The receive path is not subject to this per-frame limit because it chains multiple DMA descriptors for host-to-stub frames.
 
 ## Linker Scripts
@@ -99,7 +102,7 @@ A plugin can also provide a transport. The base stub holds a transport hook, `tr
 
 Command handlers and plugin post-process callbacks receive a `struct cmd_ctx` that includes the selected transport operations. Streaming code should send data and poll ACKs through `ctx->transport`, so plugin code stays independent of whether the host is using SLIP-based UART/USB or raw SDIO.
 
-For chips that support a plugin (ESP32-S3 with the NAND plugin, and the SPI chips with the SPI transport plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
+For chips that support a plugin (ESP32-S3 with the NAND plugin, the SPI chips with the SPI transport plugin, and the SDIO chips with the SDIO transport plugin), the plugin's load address is derived from the base stub, so the build proceeds as a dependency chain:
 
 1. Build the base stub ELF.
 2. `tools/compute_plugin_addrs.py` reads where the base ELF sections end and emits a linker fragment with the plugin load addresses and the addresses of the base symbols marked `STUB_EXPORT`.
